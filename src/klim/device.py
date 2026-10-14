@@ -214,12 +214,17 @@ class Keyboard:
 
 
 def usage_to_index(keymap: bytes) -> dict[int, int]:
-    """Map HID usage -> keymap index for standard (type 0) keymap entries."""
+    """Map HID usage -> keymap index for standard (type 0) keymap entries.
+
+    Plain entries win over ones carrying a modifier: the factory keymap also
+    has Ctrl+1/3/4/5 entries at grid positions with no physical key.
+    """
     out = {}
-    for k in range(ROWS * COLS):
-        typ, usage = keymap[4 * k], keymap[4 * k + 2]
-        if typ == 0 and usage:
-            out.setdefault(usage, k)
+    for plain in (True, False):
+        for k in range(ROWS * COLS):
+            typ, mod, usage = keymap[4 * k], keymap[4 * k + 1], keymap[4 * k + 2]
+            if typ == 0 and usage and (mod == 0) == plain:
+                out.setdefault(usage, k)
     return out
 
 
