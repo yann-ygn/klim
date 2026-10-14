@@ -96,3 +96,51 @@ async def test_direction(kb):
         await pilot.click("#dir-up")
         await settle(app, pilot)
         assert kb.state.direction == 3
+
+
+async def open_tab(pilot, tab_id):
+    await pilot.click(f"#--content-tab-{tab_id}")
+    await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_keys_usb_shown(kb):
+    kb.game_mode = True
+    kb.key_mask[0] &= ~0x02  # LWin disabled, as the vendor app's Win Lock does
+    kb.report_rate, kb.response = 1, 4
+    app = KlimApp(Klim(kb), "test")
+    async with app.run_test(size=(100, 40)) as pilot:
+        await settle(app, pilot)
+        await open_tab(pilot, "keys-usb")
+        assert app.query_one("#game-mode").value
+        assert app.query_one("#win-lock").value
+        assert app.query_one("#rate-250").value
+        assert app.query_one("#response").value == 4  # 8 ms
+        assert "lwin" in str(app.query_one("#disabled").render())
+        assert kb.writes == 0
+
+
+@pytest.mark.asyncio
+async def test_keys_usb_changes(kb):
+    kb.key_mask[6] &= ~0x01  # capslock disabled
+    app = KlimApp(Klim(kb), "test")
+    async with app.run_test(size=(100, 40)) as pilot:
+        await settle(app, pilot)
+        await open_tab(pilot, "keys-usb")
+        await pilot.click("#game-mode")
+        await pilot.click("#win-lock")
+        await pilot.click("#rate-500")
+        await settle(app, pilot)
+        assert kb.game_mode and kb.report_rate == 2
+        assert not kb.key_mask[0] & 0x02
+        app.query_one("#response").focus()
+        writes = kb.writes
+        for _ in range(3):
+            await pilot.press("right")
+        await settle(app, pilot)
+        assert kb.get_response_time() == 14  # 8 ms + 3 steps of 2 ms
+        assert kb.writes == writes + 1, "debounced into one write"
+        await pilot.click("#enable-all")
+        await settle(app, pilot)
+        assert kb.key_mask == bytearray([0xFF, 0xFF, 0x1F] * 6)
+        assert not app.query_one("#win-lock").value
