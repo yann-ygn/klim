@@ -3,9 +3,10 @@ import sys
 from pathlib import Path
 
 from . import keys
-from .device import (BRIGHTNESS_MAX, CUSTOM_MODE_BASE, MODE_NAMES, MODES, MULTICOLOR,
-                     MULTICOLOR_ONLY, SLOTS, SPEED_SLOWEST, Keyboard, usage_to_led)
+from .device import (BRIGHTNESS_MAX, CUSTOM_MODE_BASE, DEFAULT_PALETTE, MODE_NAMES, MODES,
+                     MULTICOLOR, MULTICOLOR_ONLY, SLOTS, SPEED_SLOWEST, Keyboard, usage_to_led)
 
+# Names of the palette entries' factory colors (entries can be recolored with `klim palette`)
 COLORS = ["red", "green", "yellow", "blue", "cyan", "magenta", "white", "multi"]
 DIRECTIONS = ["right", "left", "up", "down"]  # which way the animation moves; 1..4 on the wire
 
@@ -78,7 +79,10 @@ def parse_mode(s: str) -> int:
 def cmd_info(kb: Keyboard, args):
     s = kb.get_state()
     name = MODE_NAMES.get(s.mode, "?")
-    color = COLORS[s.color - 1] if 1 <= s.color <= MULTICOLOR else "?"
+    if 1 <= s.color < MULTICOLOR:
+        color = f"{COLORS[s.color - 1]} #{kb.get_palette()[s.color - 1].hex()}"
+    else:
+        color = "multi" if s.color == MULTICOLOR else "?"
     direction = DIRECTIONS[s.direction - 1] if 1 <= s.direction <= len(DIRECTIONS) else "?"
     print(f"mode={name} (0x{s.mode:02x}) speed={SPEED_SLOWEST + 1 - s.speed}/{SPEED_SLOWEST} "
           f"brightness={s.brightness}/{BRIGHTNESS_MAX} color={color} ({s.color}) "
@@ -109,6 +113,18 @@ def cmd_speed(kb: Keyboard, args):
     s.speed = args.level
     kb.set_state(s)
     cmd_info(kb, args)
+
+
+def cmd_palette(kb: Keyboard, args):
+    if args.reset:
+        for i, rgb in enumerate(DEFAULT_PALETTE):
+            kb.set_palette(i, rgb)
+    elif args.entry is not None:
+        if args.rgb is None:
+            sys.exit("error: palette needs ENTRY and RRGGBB")
+        kb.set_palette(args.entry - 1, args.rgb)
+    for i, rgb in enumerate(kb.get_palette()):
+        print(f"{i + 1} {COLORS[i]:8} #{rgb.hex()}")
 
 
 def cmd_keys(kb: Keyboard, args):
@@ -153,27 +169,34 @@ def cmd_backup(kb: Keyboard, args):
     d.mkdir(parents=True, exist_ok=True)
     (d / "state_0x88.bin").write_bytes(kb.query(0x08))
     (d / "keymap_0x8d.bin").write_bytes(kb.read_keymap())
+    (d / "palette_0x94.bin").write_bytes(b"".join(kb.get_palette()))
     for slot in range(SLOTS):
         (d / f"rgb_slot{slot}_0x92.bin").write_bytes(kb.read_rgb(slot))
-    print(f"backed up state, keymap and {SLOTS} RGB slots to {d}")
+    print(f"backed up state, palette, keymap and {SLOTS} RGB slots to {d}")
 
 
 def cmd_restore(kb: Keyboard, args):
-    """Restores lighting only (state + RGB slots); the keymap is never written."""
+    """Restores lighting only (state, palette, RGB slots); the keymap is never written."""
     d = Path(args.dir)
     restored = []
+    f = d / "palette_0x94.bin"
+    if f.exists():
+        pal = f.read_bytes()
+        for i in range(len(pal) // 3):
+            kb.set_palette(i, pal[3 * i:3 * i + 3])
+        restored.append("palette")
     for slot in range(SLOTS):
         f = d / f"rgb_slot{slot}_0x92.bin"
         if f.exists():
             kb.write_rgb(slot, f.read_bytes())
-            restored.append(str(slot + 1))
+            restored.append(f"slot {slot + 1}")
     state = kb.get_state()
     f = d / "state_0x88.bin"
     if f.exists():
         raw = f.read_bytes()
         state.mode, state.speed, state.brightness, state.color, state.direction = raw[3:8]
     kb.set_state(state)
-    print(f"restored slots [{', '.join(restored)}] and state from {d}")
+    print(f"restored {', '.join(restored + ['state'])} from {d}")
     cmd_info(kb, args)
 
 
@@ -187,7 +210,8 @@ def main(argv=None):
     m.add_argument("mode", type=parse_mode)
     m.add_argument("--speed", type=parse_speed, help=f"1 (slowest) .. {SPEED_SLOWEST} (fastest)")
     m.add_argument("--brightness", type=parse_brightness)
-    m.add_argument("--color", type=parse_palette, help=f"{', '.join(COLORS)} or 1..8")
+    m.add_argument("--color", type=parse_palette,
+                   help=f"palette entry {', '.join(COLORS)} or 1..8 (see `klim palette`)")
     m.add_argument("--direction", type=parse_direction, help=f"{', '.join(DIRECTIONS)} or 1..4")
 
     br = sub.add_parser("brightness", help=f"set brightness (0..{BRIGHTNESS_MAX}, or e.g. 50%%)")
@@ -195,6 +219,11 @@ def main(argv=None):
 
     sp = sub.add_parser("speed", help=f"set animation speed (1 slowest .. {SPEED_SLOWEST} fastest)")
     sp.add_argument("level", type=parse_speed)
+
+    pa = sub.add_parser("palette", help="list or recolor the 7 palette entries used by --color")
+    pa.add_argument("entry", nargs="?", type=parse_named(COLORS[:-1], "entry"))
+    pa.add_argument("rgb", nargs="?", type=parse_color, metavar="RRGGBB")
+    pa.add_argument("--reset", action="store_true", help="restore factory colors")
 
     k = sub.add_parser("keys", help="set per-key colors, e.g. esc=ff0000 wasd=00ff00",
                        epilog="Key names are positional US-QWERTY (AZERTY 'A' is 'q'). "
@@ -213,7 +242,7 @@ def main(argv=None):
     args = p.parse_args(argv)
     try:
         with Keyboard() as kb:
-            {"info": cmd_info, "mode": cmd_mode, "brightness": cmd_brightness, "speed": cmd_speed, "keys": cmd_keys,
+            {"info": cmd_info, "mode": cmd_mode, "brightness": cmd_brightness, "speed": cmd_speed, "palette": cmd_palette, "keys": cmd_keys,
              "backup": cmd_backup, "restore": cmd_restore}[args.cmd](kb, args)
     except (RuntimeError, KeyError, TimeoutError) as e:
         sys.exit(f"error: {e.args[0]}")

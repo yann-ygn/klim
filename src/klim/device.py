@@ -18,6 +18,7 @@ VID, PID, INTERFACE = 0x04D9, 0xA231, 3
 CMD_STATE = 0x08
 CMD_KEYMAP = 0x0D
 CMD_RGB = 0x12
+CMD_PALETTE = 0x14
 READ = 0x80
 
 SLOTS = 5
@@ -31,7 +32,9 @@ MODES = {
     **{f"diy{i + 1}": CUSTOM_MODE_BASE + i for i in range(SLOTS)},
 }
 MODE_NAMES = {v: k for k, v in MODES.items()}
-MULTICOLOR = 8  # color value; palette entries are 1..7
+MULTICOLOR = 8  # color value; 1..7 select palette entries 0..6
+DEFAULT_PALETTE = [bytes.fromhex(c) for c in
+                   ("ff0000", "00ff00", "ffff00", "0000ff", "00ffff", "ff00ff", "ffffff")]
 MULTICOLOR_ONLY = (0x03, 0x08, 0x0A)  # wave, spectrum, raindrop
 
 ROWS, COLS = 6, 21
@@ -48,7 +51,7 @@ class State:
     mode: int
     speed: int  # raw delay, SPEED_SLOWEST (10) .. SPEED_FASTEST (1)
     brightness: int  # 0 (off) .. BRIGHTNESS_MAX
-    color: int  # 8 = multicolor, 1 = red
+    color: int  # 1..7 = palette entry 0..6, 8 = multicolor
     direction: int
 
     def as_bytes(self) -> list[int]:
@@ -118,6 +121,15 @@ class Keyboard:
     def set_state(self, state: State):
         """Apply a lighting state. Also makes freshly uploaded RGB slots visible."""
         self.command(CMD_STATE, 0x02, *state.as_bytes())
+        time.sleep(0.02)
+
+    # --- palette (takes effect immediately) ----------------------------
+
+    def get_palette(self) -> list[bytes]:
+        return [self.query(CMD_PALETTE, 0, n)[4:7] for n in range(len(DEFAULT_PALETTE))]
+
+    def set_palette(self, index: int, rgb: bytes):
+        self.command(CMD_PALETTE, 0, index, *rgb)
         time.sleep(0.02)
 
     # --- per-key RGB ----------------------------------------------------

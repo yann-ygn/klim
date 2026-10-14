@@ -5,6 +5,7 @@ Lighting control for the KLIM Dash TKL keyboard, replacing the vendor app.
 ```sh
 uv run klim info                                     # current mode/state
 uv run klim mode constant --color red                # or breathing, wave, diy1...
+uv run klim palette red ff8000                       # recolor palette entry 1 (or --reset)
 uv run klim brightness 70%                           # 0..50 raw, or a percentage
 uv run klim speed 8                                  # 1 (slowest) .. 10 (fastest)
 uv run klim mode wave --direction up --speed 7
@@ -35,6 +36,7 @@ with `COUNT` x 64-byte output reports, ~5 ms apart.
 | Write | Read | Payload |
 |---|---|---|
 | `08 02 mode speed bright color dir` | `88` | lighting state (reply bytes 3..7); speed is a delay, 10 (slow)..1 (fast); brightness 0 (off)..50; direction 1 →, 2 ←, 3 ↑, 4 ↓ |
+| `14 00 n R G B` | `94 00 n` | palette entry n (0..6), applies immediately |
 | `12 00 slot 08` + 512 B | `92 00 slot 08` | per-key RGB, 128 x `[0,R,G,B]` in LED order |
 | `0D 00 00 08` + 512 B | `8D` | keymap, 128 x `[type,mod,usage,0]` — **not used here** |
 
@@ -49,7 +51,7 @@ with `COUNT` x 64-byte output reports, ~5 ms apart.
 - Key layout is a 6 x 21 grid. Keymap index `k = row*21 + col` (bottom row
   first); LED index `col*6 + row`.
 - `91 00 n` (n=0..31) returns 3 x 64 bytes, probably macros; `11 00 n 03`
-  likely writes them. `14` likely writes palette entries.
+  likely writes them.
 - Unidentified: `80 81 84 89 8E` / `01 04 09 13`. `81` changed `01` -> `03`
   after applying settings in the vendor app.
 - Print Screen stays white in every mode (firmware indicator?).
