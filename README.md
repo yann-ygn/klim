@@ -61,6 +61,6 @@ with `COUNT` x 64-byte output reports, ~5 ms apart.
   likely writes them.
 - The firmware stores out-of-range values without complaint (e.g. `01 08`); the tool
   validates everything it sends.
-- Unidentified: `80` (reads `02 01`, maybe a firmware version).
+- `80` returns the firmware version, minor then major: `80 02 01` = 1.2.
 - `13 FF` is sent before the app re-reads everything: most likely a factory reset.
   Never sent by this tool.

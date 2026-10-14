@@ -15,6 +15,7 @@ import hid
 
 VID, PID, INTERFACE = 0x04D9, 0xA231, 3
 
+CMD_VERSION = 0x00  # read-only (0x80)
 CMD_REPORT_RATE = 0x01
 CMD_RESPONSE_TIME = 0x04
 CMD_STATE = 0x08
@@ -142,6 +143,10 @@ class Keyboard:
     def set_palette(self, index: int, rgb: bytes):
         self.command(CMD_PALETTE, 0, index, *rgb)
         time.sleep(0.02)
+
+    def get_firmware_version(self) -> str:
+        r = self.query(CMD_VERSION)
+        return f"{r[3]}.{r[2]}"
 
     # --- USB report rate / response time -------------------------------
 

@@ -96,7 +96,8 @@ def cmd_info(kb: Keyboard, args):
     win_lock = any(n in disabled for n in WIN_KEYS)
     print(f"game_mode={'on' if kb.get_game_mode() else 'off'} win_lock={'on' if win_lock else 'off'} "
           f"disabled_keys={','.join(disabled) or 'none'}")
-    print(f"report_rate={kb.get_report_rate() or 'unknown '}Hz response_time={kb.get_response_time()}ms")
+    print(f"report_rate={kb.get_report_rate() or 'unknown '}Hz response_time={kb.get_response_time()}ms "
+          f"firmware={kb.get_firmware_version()}")
 
 
 def disabled_keys(kb: Keyboard) -> list[str]:
