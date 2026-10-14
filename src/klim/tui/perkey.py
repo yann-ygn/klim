@@ -67,6 +67,11 @@ class PerKeyPane(Pane):
             mode = info.state.mode
             self.load_slot(mode - CUSTOM_MODE_BASE if mode >= CUSTOM_MODE_BASE else 0)
 
+    def reload(self):
+        """Re-read the current slot from the keyboard (discards Revert history)."""
+        if self.slot is not None:
+            self.load_slot(self.slot)
+
     def load_slot(self, slot: int):
         def read(k: Klim):
             return k, k.keymap, k.read_slot(slot)

@@ -21,6 +21,24 @@ Key names are positional US-QWERTY (`q` is the AZERTY `A` key). Groups:
 `wasd`, `arrows`, `fkeys`, `numbers`, `letters`, `nav`, `mods`; raw HID usages
 like `0x29` also work.
 
+## TUI
+
+```sh
+uv run klim tui                 # tabs: Lighting, Per-key, Keys & USB, Backup
+uv run klim tui --fake          # simulated keyboard, nothing is sent to hardware
+uv run klim tui --layout us     # key legends; default follows the Windows layout (fr/us)
+```
+
+Changes apply immediately (sliders and per-key edits are debounced). On the
+keyboard maps, click or drag to select keys, or use the arrows and Space.
+`r` re-reads everything from the keyboard, `q` quits.
+
+## Development
+
+```sh
+uv run pytest                   # control layer + TUI tests against FakeKeyboard
+```
+
 ## Protocol
 
 Holtek MCU, USB `04D9:A231`, vendor interface 3 (usage page `0xFF01`).

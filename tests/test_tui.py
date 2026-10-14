@@ -235,3 +235,55 @@ async def test_disable_keys_via_map(kb):
         await settle(app, pilot)
         assert kb.key_mask == bytearray(ALL_KEYS_ENABLED)
         assert not km.selection
+
+
+@pytest.mark.asyncio
+async def test_backup_and_restore(kb, tmp_path):
+    from klim.tui.backup import find_backups
+    klim = Klim(kb)
+    app = KlimApp(klim, "test")
+    async with app.run_test(size=(110, 50)) as pilot:
+        await settle(app, pilot)
+        await open_tab(pilot, "backup")
+        app.query_one("#backup-dir").value = str(tmp_path)
+        await pilot.click("#rescan")
+        assert app.query_one("#restore").disabled
+        await pilot.click("#backup-now")
+        await settle(app, pilot)
+        assert len(find_backups(tmp_path)) == 1
+        assert not app.query_one("#restore").disabled
+
+        kb.state.brightness, kb.palette[0], kb.game_mode = 3, b"\1\2\3", True
+        kb.rgb[0] = bytearray(b"\x00\x11\x22\x33" * 128)
+
+        await pilot.click("#restore")
+        await pilot.pause()
+        await pilot.click("#no")  # cancel: nothing changes
+        await settle(app, pilot)
+        assert kb.state.brightness == 3
+
+        await pilot.click("#restore")
+        await pilot.pause()
+        await pilot.click("#yes")
+        await settle(app, pilot)
+        assert kb.state.brightness == 36 and kb.palette[0] == b"\xff\0\0" and not kb.game_mode
+        assert kb.rgb[0][:8] == bytes(8)
+        assert app.query_one("#brightness").value == 36, "UI reloaded after restore"
+
+
+@pytest.mark.asyncio
+async def test_restore_dialog_defaults_to_cancel(kb, tmp_path):
+    klim = Klim(kb)
+    klim.backup(tmp_path / "b1")
+    kb.state.brightness = 7
+    app = KlimApp(klim, "test")
+    async with app.run_test(size=(110, 50)) as pilot:
+        await settle(app, pilot)
+        await open_tab(pilot, "backup")
+        app.query_one("#backup-dir").value = str(tmp_path)
+        await pilot.click("#rescan")
+        await pilot.click("#restore")
+        await pilot.pause()
+        await pilot.press("enter")
+        await settle(app, pilot)
+        assert kb.state.brightness == 7, "Enter in the dialog cancels"

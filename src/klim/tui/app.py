@@ -9,6 +9,7 @@ from textual.widgets import Footer, Header, TabbedContent
 
 from ..control import Info, Klim
 from ..device import State
+from .backup import BackupPane
 from .keys_usb import KeysUsbPane
 from .lighting import LightingPane
 from .perkey import PerKeyPane
@@ -82,6 +83,7 @@ class KlimApp(App):
             yield LightingPane("Lighting", id="lighting")
             yield PerKeyPane("Per-key", key_layout=self.key_layout, id="per-key")
             yield KeysUsbPane("Keys & USB", key_layout=self.key_layout, id="keys-usb")
+            yield BackupPane("Backup", id="backup")
         yield Footer()
 
     def on_mount(self):
@@ -131,5 +133,10 @@ class KlimApp(App):
     def device_error(self, error: Exception):
         self.notify(f"{type(error).__name__}: {error}", title="Keyboard error", severity="error")
 
-    def action_refresh(self):
+    def reload_all(self):
+        """Re-read everything, including the per-key tab's slot colors."""
         self.refresh_info()
+        self.query_one(PerKeyPane).reload()
+
+    def action_refresh(self):
+        self.reload_all()
