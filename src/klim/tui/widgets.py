@@ -146,8 +146,9 @@ class Swatch(Widget, can_focus=True):
         def control(self) -> "Swatch":
             return self.swatch
 
-    def __init__(self, index: int, rgb: bytes | None, *, tooltip: str | None = None):
-        super().__init__(id=f"swatch-{index}")
+    def __init__(self, index: int, rgb: bytes | None, *, tooltip: str | None = None,
+                 id: str | None = None):
+        super().__init__(id=id or f"swatch-{index}")
         self.index = index
         self.set_reactive(Swatch.rgb, rgb)
         if tooltip:

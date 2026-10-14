@@ -11,6 +11,7 @@ from ..control import Info, Klim
 from ..device import State
 from .keys_usb import KeysUsbPane
 from .lighting import LightingPane
+from .perkey import PerKeyPane
 from .pane import Pane
 
 DEBOUNCE = 0.15  # seconds; sliders only write once they settle
@@ -66,9 +67,10 @@ class KlimApp(App):
         Binding("q", "quit", "Quit"),
     ]
 
-    def __init__(self, klim: Klim, subtitle: str = ""):
+    def __init__(self, klim: Klim, subtitle: str = "", key_layout: str = "us"):
         super().__init__()
         self.klim = klim
+        self.key_layout = key_layout
         self.sub_title = subtitle
         self.info: Info | None = None
         self.device: DeviceThread | None = None
@@ -78,7 +80,8 @@ class KlimApp(App):
         yield Header()
         with TabbedContent():
             yield LightingPane("Lighting", id="lighting")
-            yield KeysUsbPane("Keys & USB", id="keys-usb")
+            yield PerKeyPane("Per-key", key_layout=self.key_layout, id="per-key")
+            yield KeysUsbPane("Keys & USB", key_layout=self.key_layout, id="keys-usb")
         yield Footer()
 
     def on_mount(self):

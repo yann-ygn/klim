@@ -242,11 +242,12 @@ def main(argv=None):
 
     t = sub.add_parser("tui", help="interactive terminal interface")
     t.add_argument("--fake", action="store_true", help="use a simulated keyboard")
+    t.add_argument("--layout", choices=["us", "fr"], help="key legends (default: detect from Windows)")
 
     args = p.parse_args(argv)
     if args.cmd == "tui":
         from .tui import run
-        return run(fake=args.fake)
+        return run(fake=args.fake, layout=args.layout)
     try:
         with Keyboard() as kb:
             k = Klim(kb)

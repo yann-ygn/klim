@@ -3,9 +3,10 @@
 import sys
 
 
-def run(fake: bool = False):
+def run(fake: bool = False, layout: str | None = None):
     from ..control import Klim
     from .app import KlimApp
+    from .keymap import detect_layout
 
     if fake:
         from ..fake import FakeKeyboard
@@ -18,6 +19,6 @@ def run(fake: bool = False):
             sys.exit(f"error: {e} (try `klim tui --fake`)")
         subtitle = "connected"
     try:
-        KlimApp(Klim(kb), subtitle).run()
+        KlimApp(Klim(kb), subtitle, layout or detect_layout()).run()
     finally:
         kb.close()

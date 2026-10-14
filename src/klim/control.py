@@ -39,6 +39,7 @@ class Info:
     palette: list[bytes]
     game_mode: bool
     disabled_keys: list[str]
+    key_mask: bytes
     report_rate: int | None
     response_time: int
     firmware: str
@@ -46,6 +47,10 @@ class Info:
     @property
     def win_lock(self) -> bool:
         return any(n in self.disabled_keys for n in WIN_KEYS)
+
+    @property
+    def disabled_indices(self) -> frozenset[int]:
+        return frozenset(k for k in range(ROWS * COLS) if not key_enabled(self.key_mask, k))
 
     @property
     def speed(self) -> int:
@@ -84,11 +89,13 @@ class Klim:
         return self._keymap
 
     def info(self) -> Info:
+        mask = bytes(self.kb.read_key_mask())
         return Info(
             state=self.kb.get_state(),
             palette=self.kb.get_palette(),
             game_mode=self.kb.get_game_mode(),
-            disabled_keys=self.disabled_keys(),
+            disabled_keys=self.disabled_keys(mask),
+            key_mask=mask,
             report_rate=self.kb.get_report_rate(),
             response_time=self.kb.get_response_time(),
             firmware=self.kb.get_firmware_version(),
@@ -157,8 +164,9 @@ class Klim:
                     raise KeyError(f"key '{name}' (usage 0x{usage:02x}) not in keymap")
         return out
 
-    def disabled_keys(self) -> list[str]:
-        mask = self.kb.read_key_mask()
+    def disabled_keys(self, mask: bytes | None = None) -> list[str]:
+        if mask is None:
+            mask = self.kb.read_key_mask()
         return [self.key_name(k) for k in range(ROWS * COLS)
                 if not key_enabled(mask, k) and self.keymap[4 * k + 2]]
 
@@ -166,6 +174,13 @@ class Klim:
         mask = self.kb.read_key_mask()
         for k in self.key_indices(names, strict):
             set_key_enabled(mask, k, enabled)
+        self.kb.write_key_mask(mask)
+
+    def set_disabled(self, indices: set[int]):
+        """Disable exactly these keymap indices; every other key is enabled."""
+        mask = bytearray(ALL_KEYS_ENABLED)
+        for k in indices:
+            set_key_enabled(mask, k, False)
         self.kb.write_key_mask(mask)
 
     def enable_all_keys(self):

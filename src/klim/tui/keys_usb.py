@@ -1,16 +1,20 @@
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Button, Label, RadioButton, RadioSet, Switch
 
 from ..control import Info
 from ..device import REPORT_RATES_HZ, RESPONSE_TIMES_MS
+from .keymap import KeyboardMap
 from .pane import Pane
 from .widgets import Slider
+
+ENABLED, DISABLED = bytes.fromhex("303038"), bytes.fromhex("a01818")
 
 
 class KeysUsbPane(Pane):
     DEFAULT_CSS = """
-    KeysUsbPane > Vertical { padding: 0 2; height: auto; }
+    KeysUsbPane > VerticalScroll { padding: 0 2; }
+    KeysUsbPane #disable-map { margin-top: 1; }
     KeysUsbPane .section { margin-top: 1; text-style: bold; }
     KeysUsbPane .field { margin-top: 1; color: $text-muted; }
     KeysUsbPane .toggle { height: 3; margin-top: 1; }
@@ -21,8 +25,12 @@ class KeysUsbPane(Pane):
     KeysUsbPane #response { max-width: 60; }
     """
 
+    def __init__(self, title: str, *, key_layout: str, id: str | None = None):
+        super().__init__(title, id=id)
+        self.key_layout = key_layout
+
     def compose(self) -> ComposeResult:
-        with Vertical():
+        with VerticalScroll():
             yield Label("Keys", classes="section")
             with Horizontal(classes="toggle"):
                 yield Switch(id="game-mode")
@@ -33,6 +41,8 @@ class KeysUsbPane(Pane):
             with Horizontal(id="disabled-row"):
                 yield Label("Disabled keys: none", id="disabled")
                 yield Button("Enable all keys", id="enable-all")
+            yield Label("Click keys to disable or re-enable them", classes="field")
+            yield KeyboardMap(self.key_layout, id="disable-map")
 
             yield Label("USB", classes="section")
             yield Label("Report rate (polling)", classes="field")
@@ -56,8 +66,20 @@ class KeysUsbPane(Pane):
         self.query_one("#disabled", Label).update(
             f"Disabled keys: {', '.join(info.disabled_keys) or 'none'}")
         self.query_one("#enable-all", Button).disabled = not info.disabled_keys
+        km = self.query_one("#disable-map", KeyboardMap)
+        km.keymap = self.app.klim.keymap  # cached by info()
+        km.selection = info.disabled_indices
+        km.dimmed = set(info.disabled_indices)
+        km.set_colors({r.k: DISABLED if r.k in km.dimmed else ENABLED for r in km.rects})
 
     # --- UI -> keyboard ---------------------------------------------------
+
+    def on_keyboard_map_selection_changed(self, event: KeyboardMap.SelectionChanged):
+        km = event.keymap
+        km.dimmed = set(event.selection)
+        km.set_colors({r.k: DISABLED if r.k in km.dimmed else ENABLED for r in km.rects})
+        disabled = set(event.selection)
+        self.app.debounce("key-mask", lambda: self.app.change(lambda k: k.set_disabled(disabled)))
 
     def on_switch_changed(self, event: Switch.Changed):
         on = event.value

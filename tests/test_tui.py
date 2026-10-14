@@ -109,7 +109,7 @@ async def test_keys_usb_shown(kb):
     kb.key_mask[0] &= ~0x02  # LWin disabled, as the vendor app's Win Lock does
     kb.report_rate, kb.response = 1, 4
     app = KlimApp(Klim(kb), "test")
-    async with app.run_test(size=(100, 40)) as pilot:
+    async with app.run_test(size=(110, 60)) as pilot:
         await settle(app, pilot)
         await open_tab(pilot, "keys-usb")
         assert app.query_one("#game-mode").value
@@ -124,7 +124,7 @@ async def test_keys_usb_shown(kb):
 async def test_keys_usb_changes(kb):
     kb.key_mask[6] &= ~0x01  # capslock disabled
     app = KlimApp(Klim(kb), "test")
-    async with app.run_test(size=(100, 40)) as pilot:
+    async with app.run_test(size=(110, 60)) as pilot:
         await settle(app, pilot)
         await open_tab(pilot, "keys-usb")
         await pilot.click("#game-mode")
@@ -144,3 +144,94 @@ async def test_keys_usb_changes(kb):
         await settle(app, pilot)
         assert kb.key_mask == bytearray([0xFF, 0xFF, 0x1F] * 6)
         assert not app.query_one("#win-lock").value
+
+
+def rect_of(app, k):
+    from klim.tui.keymap import KeyboardMap
+    return next(r for r in app.query_one(KeyboardMap).rects if r.k == k and not r.continuation)
+
+
+async def click_key(pilot, app, k):
+    r = rect_of(app, k)
+    # +1/+1: the map's border; padding adds 1 column
+    await pilot.click("#map", offset=(r.x0 + 2, r.y + 1))
+
+
+@pytest.mark.asyncio
+async def test_perkey_paint_and_revert(kb):
+    klim = Klim(kb)
+    esc, w = klim.key_indices(["esc"])[0], klim.key_indices(["w"])[0]
+    kb.rgb[0] = klim.filled_slot(bytes.fromhex("102030"))
+    kb.state.mode = 0x33
+    app = KlimApp(klim, "test")
+    async with app.run_test(size=(110, 45)) as pilot:
+        await settle(app, pilot)
+        await open_tab(pilot, "per-key")
+        await settle(app, pilot)
+        await click_key(pilot, app, esc)
+        await click_key(pilot, app, w)
+        assert app.query_one("#map").selection == {esc, w}
+        await pilot.click("#paint-1")  # palette entry 1 = red
+        await settle(app, pilot)
+        assert klim.key_color(kb.rgb[0], esc) == bytes.fromhex("ff0000")
+        assert klim.key_color(kb.rgb[0], w) == bytes.fromhex("ff0000")
+        other = klim.key_indices(["e"])[0]
+        assert klim.key_color(kb.rgb[0], other) == bytes.fromhex("102030")
+        app.query_one("#paint-hex").value = "#00ff80"
+        app.query_one("#paint-hex").focus()
+        await pilot.press("enter")
+        await settle(app, pilot)
+        assert klim.key_color(kb.rgb[0], esc) == bytes.fromhex("00ff80")
+        await pilot.click("#revert")
+        await settle(app, pilot)
+        assert klim.key_color(kb.rgb[0], esc) == bytes.fromhex("102030")
+
+
+@pytest.mark.asyncio
+async def test_perkey_drag_select_and_slot_switch(kb):
+    klim = Klim(kb)
+    kb.state.mode = 0x33
+    kb.rgb[2] = klim.filled_slot(bytes.fromhex("abcdef"))
+    app = KlimApp(klim, "test")
+    async with app.run_test(size=(110, 45)) as pilot:
+        await settle(app, pilot)
+        await open_tab(pilot, "per-key")
+        await settle(app, pilot)
+        a, d = rect_of(app, klim.key_indices(["a"])[0]), rect_of(app, klim.key_indices(["d"])[0])
+        await pilot.mouse_down("#map", offset=(a.x0 + 2, a.y + 1))
+        await pilot.hover("#map", offset=(d.x0 + 2, d.y + 1))
+        await pilot.mouse_up("#map", offset=(d.x0 + 2, d.y + 1))
+        assert app.query_one("#map").selection >= set(klim.key_indices(["a", "d"]))
+        await pilot.click("#slot-2")
+        await settle(app, pilot)
+        assert kb.state.mode == 0x35
+        assert not app.query_one("#map").selection
+        esc = klim.key_indices(["esc"])[0]
+        assert app.query_one("#map").key_colors[esc] == bytes.fromhex("abcdef")
+
+
+@pytest.mark.asyncio
+async def test_disable_keys_via_map(kb):
+    from klim.control import ALL_KEYS_ENABLED
+    from klim.device import key_enabled
+    klim = Klim(kb)
+    caps, lwin = klim.key_indices(["capslock"])[0], klim.key_indices(["lwin"])[0]
+    app = KlimApp(klim, "test")
+    async with app.run_test(size=(110, 60)) as pilot:
+        await settle(app, pilot)
+        await open_tab(pilot, "keys-usb")
+        km = app.query_one("#disable-map")
+        km.focus()
+        km.cursor = caps
+        await pilot.press("space")
+        km.cursor = lwin
+        await pilot.press("space")
+        await settle(app, pilot)
+        assert not key_enabled(kb.key_mask, caps) and not key_enabled(kb.key_mask, lwin)
+        assert sum(not key_enabled(kb.key_mask, k) for k in range(126)) == 2
+        assert app.query_one("#win-lock").value, "disabling LWin shows as Win Lock"
+        assert "capslock" in str(app.query_one("#disabled").render())
+        await pilot.click("#enable-all")
+        await settle(app, pilot)
+        assert kb.key_mask == bytearray(ALL_KEYS_ENABLED)
+        assert not km.selection
