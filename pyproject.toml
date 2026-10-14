@@ -1,0 +1,19 @@
+[project]
+name = "klim"
+version = "0.1.0"
+description = "Lighting control for the KLIM Dash TKL keyboard (reverse-engineered HID protocol)"
+readme = "README.md"
+authors = [
+    { name = "yann-ygn", email = "yann@ygn-effects.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "hidapi>=0.15.0",
+]
+
+[project.scripts]
+klim = "klim:main"
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"
