@@ -4,7 +4,7 @@ Lighting control for the KLIM Dash TKL keyboard, replacing the vendor app.
 
 ```sh
 uv run klim info                                     # current mode/state
-uv run klim mode 1 --color 1                         # static red
+uv run klim mode constant --color red                # or breathing, wave, diy1...
 uv run klim brightness 70%                           # 0..50 raw, or a percentage
 uv run klim keys --base 000020 esc=ff0000 wasd=00ff00  # per-key colors
 uv run klim backup backup/full                       # state + keymap + all RGB slots
@@ -36,7 +36,10 @@ with `COUNT` x 64-byte output reports, ~5 ms apart.
 | `12 00 slot 08` + 512 B | `92 00 slot 08` | per-key RGB, 128 x `[0,R,G,B]` in LED order |
 | `0D 00 00 08` + 512 B | `8D` | keymap, 128 x `[type,mod,usage,0]` — **not used here** |
 
-- Modes: `01`(static) `02 03 04 05 06 08 0A 0B 0C 0D`, `33`..`37` = custom RGB slot 0..4.
+- Modes: `01` Constant, `02` Breathing, `03` Wave, `04` Reactive, `05` Chase,
+  `06` Ripple, `08` Spectrum, `0A` Raindrop, `0B` Vortex, `0C` Spotlight,
+  `0D` Radar, `33`..`37` DIY1..5 (custom RGB slot 0..4). Wave, Spectrum and
+  Raindrop are always multicolor.
 - Color `01`..`07` = palette entry 0..6 (read with `94 00 n`: red, green, yellow, blue,
   cyan, magenta, white by default); `08` = multicolor, which the firmware forces
   to `01` in static mode.

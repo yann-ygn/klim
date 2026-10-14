@@ -3,7 +3,10 @@ import sys
 from pathlib import Path
 
 from . import keys
-from .device import BRIGHTNESS_MAX, CUSTOM_MODE_BASE, MODES, SLOTS, Keyboard, usage_to_led
+from .device import (BRIGHTNESS_MAX, CUSTOM_MODE_BASE, MODE_NAMES, MODES, MULTICOLOR,
+                     MULTICOLOR_ONLY, SLOTS, Keyboard, usage_to_led)
+
+COLORS = ["red", "green", "yellow", "blue", "cyan", "magenta", "white", "multi"]
 
 
 def parse_int(s: str) -> int:
@@ -25,23 +28,34 @@ def parse_color(s: str) -> bytes:
 
 
 def parse_mode(s: str) -> int:
-    s = s.lower()
-    if s.startswith("custom"):
-        slot = int(s[6:] or 1) - 1
-        if not 0 <= slot < SLOTS:
-            raise argparse.ArgumentTypeError(f"custom slot must be 1..{SLOTS}")
-        return CUSTOM_MODE_BASE + slot
-    m = int(s, 0)
-    if m not in MODES:
-        raise argparse.ArgumentTypeError(f"mode must be one of {', '.join(f'0x{x:02x}' for x in MODES)}")
+    s = s.lower().replace("custom", "diy")
+    if s in MODES:
+        return MODES[s]
+    try:
+        m = int(s, 0)
+    except ValueError:
+        m = None
+    if m not in MODE_NAMES:
+        raise argparse.ArgumentTypeError(f"mode must be one of: {', '.join(MODES)} (or its number)")
     return m
+
+
+def parse_palette(s: str) -> int:
+    """Color value: 1..7 = palette entry (red..white by default), 8 = multicolor."""
+    if s.lower() in COLORS:
+        return COLORS.index(s.lower()) + 1
+    v = int(s, 0)
+    if not 1 <= v <= MULTICOLOR:
+        raise argparse.ArgumentTypeError(f"color must be 1..8 or one of: {', '.join(COLORS)}")
+    return v
 
 
 def cmd_info(kb: Keyboard, args):
     s = kb.get_state()
-    slot = f" (custom slot {s.mode - CUSTOM_MODE_BASE + 1})" if s.mode >= CUSTOM_MODE_BASE else ""
-    print(f"mode=0x{s.mode:02x}{slot} speed={s.speed} brightness={s.brightness}/{BRIGHTNESS_MAX} "
-          f"color={s.color} direction={s.direction}")
+    name = MODE_NAMES.get(s.mode, "?")
+    color = COLORS[s.color - 1] if 1 <= s.color <= MULTICOLOR else "?"
+    print(f"mode={name} (0x{s.mode:02x}) speed={s.speed} brightness={s.brightness}/{BRIGHTNESS_MAX} "
+          f"color={color} ({s.color}) direction={s.direction}")
 
 
 def cmd_mode(kb: Keyboard, args):
@@ -50,6 +64,8 @@ def cmd_mode(kb: Keyboard, args):
     for f in ("speed", "brightness", "color", "direction"):
         if getattr(args, f) is not None:
             setattr(s, f, getattr(args, f))
+    if s.mode in MULTICOLOR_ONLY:
+        s.color = MULTICOLOR
     kb.set_state(s)
     cmd_info(kb, args)
 
@@ -130,11 +146,11 @@ def main(argv=None):
 
     sub.add_parser("info", help="show current lighting state")
 
-    m = sub.add_parser("mode", help="set lighting mode (0x01..0x0d, or custom1..custom5)")
+    m = sub.add_parser("mode", help=f"set lighting mode: {', '.join(MODES)}")
     m.add_argument("mode", type=parse_mode)
     m.add_argument("--speed", type=parse_int)
     m.add_argument("--brightness", type=parse_brightness)
-    m.add_argument("--color", type=parse_int)
+    m.add_argument("--color", type=parse_palette, help=f"{', '.join(COLORS)} or 1..8")
     m.add_argument("--direction", type=parse_int)
 
     br = sub.add_parser("brightness", help=f"set brightness (0..{BRIGHTNESS_MAX}, or e.g. 50%%)")

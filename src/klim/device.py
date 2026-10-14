@@ -23,8 +23,15 @@ READ = 0x80
 SLOTS = 5
 BRIGHTNESS_MAX = 50  # 0 = LEDs off
 CUSTOM_MODE_BASE = 0x33  # modes 0x33..0x37 display RGB slots 0..4
-MODES = (0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x08, 0x0A, 0x0B, 0x0C, 0x0D,
-         0x33, 0x34, 0x35, 0x36, 0x37)
+MODES = {
+    "constant": 0x01, "breathing": 0x02, "wave": 0x03, "reactive": 0x04,
+    "chase": 0x05, "ripple": 0x06, "spectrum": 0x08, "raindrop": 0x0A,
+    "vortex": 0x0B, "spotlight": 0x0C, "radar": 0x0D,
+    **{f"diy{i + 1}": CUSTOM_MODE_BASE + i for i in range(SLOTS)},
+}
+MODE_NAMES = {v: k for k, v in MODES.items()}
+MULTICOLOR = 8  # color value; palette entries are 1..7
+MULTICOLOR_ONLY = (0x03, 0x08, 0x0A)  # wave, spectrum, raindrop
 
 ROWS, COLS = 6, 21
 ENTRIES = 128
