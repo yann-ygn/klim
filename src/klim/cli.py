@@ -3,17 +3,9 @@ import sys
 from pathlib import Path
 
 from . import keys
-from .device import (BRIGHTNESS_MAX, COLS, CUSTOM_MODE_BASE, DEFAULT_PALETTE, KEY_MASK_LEN,
-                     MODE_NAMES, MODES, MULTICOLOR, MULTICOLOR_ONLY, REPORT_RATES_HZ,
-                     RESPONSE_TIMES_MS, ROWS, SLOTS, SPEED_SLOWEST, Keyboard, key_enabled,
-                     set_key_enabled, usage_to_index, usage_to_led)
-
-WIN_KEYS = ("lwin", "rwin")
-ALL_KEYS_ENABLED = bytes([0xFF, 0xFF, 0x1F] * ROWS)
-
-# Names of the palette entries' factory colors (entries can be recolored with `klim palette`)
-COLORS = ["red", "green", "yellow", "blue", "cyan", "magenta", "white", "multi"]
-DIRECTIONS = ["right", "left", "up", "down"]  # which way the animation moves; 1..4 on the wire
+from .control import COLORS, DIRECTIONS, Info, Klim
+from .device import (BRIGHTNESS_MAX, MODE_NAMES, MODES, REPORT_RATES_HZ,
+                     RESPONSE_TIMES_MS, SLOTS, SPEED_SLOWEST, Keyboard)
 
 
 def _int(s: str, lo: int, hi: int, msg: str) -> int:
@@ -40,9 +32,7 @@ parse_direction = parse_named(DIRECTIONS, "direction")
 
 
 def parse_speed(s: str) -> int:
-    """User-facing speed 1 (slowest) .. 10 (fastest) -> raw delay."""
-    v = _int(s, 1, SPEED_SLOWEST, f"speed must be 1 (slowest) .. {SPEED_SLOWEST} (fastest)")
-    return SPEED_SLOWEST + 1 - v
+    return _int(s, 1, SPEED_SLOWEST, f"speed must be 1 (slowest) .. {SPEED_SLOWEST} (fastest)")
 
 
 def parse_brightness(s: str) -> int:
@@ -81,214 +71,118 @@ def parse_mode(s: str) -> int:
     return m
 
 
-def cmd_info(kb: Keyboard, args):
-    s = kb.get_state()
-    name = MODE_NAMES.get(s.mode, "?")
-    if 1 <= s.color < MULTICOLOR:
-        color = f"{COLORS[s.color - 1]} #{kb.get_palette()[s.color - 1].hex()}"
-    else:
-        color = "multi" if s.color == MULTICOLOR else "?"
-    direction = DIRECTIONS[s.direction - 1] if 1 <= s.direction <= len(DIRECTIONS) else "?"
-    print(f"mode={name} (0x{s.mode:02x}) speed={SPEED_SLOWEST + 1 - s.speed}/{SPEED_SLOWEST} "
+def fmt_rate(i: Info) -> str:
+    return f"report_rate={i.report_rate or 'unknown '}Hz"
+
+
+def fmt_disabled(names: list[str]) -> str:
+    return f"disabled_keys={','.join(names) or 'none'}"
+
+
+def on_off(b: bool) -> str:
+    return "on" if b else "off"
+
+
+def cmd_info(k: Klim, args):
+    i = k.info()
+    s = i.state
+    color = f"{i.color_name} #{i.color_rgb.hex()}" if i.color_rgb else i.color_name
+    print(f"mode={i.mode_name} (0x{s.mode:02x}) speed={i.speed}/{SPEED_SLOWEST} "
           f"brightness={s.brightness}/{BRIGHTNESS_MAX} color={color} ({s.color}) "
-          f"direction={direction} ({s.direction})")
-    disabled = disabled_keys(kb)
-    win_lock = any(n in disabled for n in WIN_KEYS)
-    print(f"game_mode={'on' if kb.get_game_mode() else 'off'} win_lock={'on' if win_lock else 'off'} "
-          f"disabled_keys={','.join(disabled) or 'none'}")
-    print(f"report_rate={kb.get_report_rate() or 'unknown '}Hz response_time={kb.get_response_time()}ms "
-          f"firmware={kb.get_firmware_version()}")
+          f"direction={i.direction_name} ({s.direction})")
+    print(f"game_mode={on_off(i.game_mode)} win_lock={on_off(i.win_lock)} {fmt_disabled(i.disabled_keys)}")
+    print(f"{fmt_rate(i)} response_time={i.response_time}ms firmware={i.firmware}")
 
 
-def disabled_keys(kb: Keyboard) -> list[str]:
-    km, mask = kb.read_keymap(), kb.read_key_mask()
-    names = []
-    for k in range(ROWS * COLS):
-        if not key_enabled(mask, k) and km[4 * k + 2]:
-            names.append(keys.name_of(km[4 * k + 2]) if km[4 * k] == 0 else f"#{k}")
-    return names
+def cmd_mode(k: Klim, args):
+    k.set_lighting(args.mode, args.speed, args.brightness, args.color, args.direction)
+    cmd_info(k, args)
 
 
-def set_keys_enabled(kb: Keyboard, names: list[str], enabled: bool, strict: bool = True):
-    index = usage_to_index(kb.read_keymap())
-    mask = kb.read_key_mask()
-    for name in names:
-        for usage in keys.resolve(name):
-            if usage in index:
-                set_key_enabled(mask, index[usage], enabled)
-            elif strict:
-                sys.exit(f"key '{name}' (usage 0x{usage:02x}) not in keymap")
-    kb.write_key_mask(mask)
+def cmd_brightness(k: Klim, args):
+    k.set_lighting(brightness=args.level)
+    cmd_info(k, args)
 
 
-def cmd_mode(kb: Keyboard, args):
-    s = kb.get_state()
-    s.mode = args.mode
-    for f in ("speed", "brightness", "color", "direction"):
-        if getattr(args, f) is not None:
-            setattr(s, f, getattr(args, f))
-    if s.mode in MULTICOLOR_ONLY:
-        s.color = MULTICOLOR
-    kb.set_state(s)
-    cmd_info(kb, args)
+def cmd_speed(k: Klim, args):
+    k.set_lighting(speed=args.level)
+    cmd_info(k, args)
 
 
-def cmd_brightness(kb: Keyboard, args):
-    s = kb.get_state()
-    s.brightness = args.level
-    kb.set_state(s)
-    cmd_info(kb, args)
-
-
-def cmd_speed(kb: Keyboard, args):
-    s = kb.get_state()
-    s.speed = args.level
-    kb.set_state(s)
-    cmd_info(kb, args)
-
-
-def cmd_palette(kb: Keyboard, args):
+def cmd_palette(k: Klim, args):
     if args.reset:
-        for i, rgb in enumerate(DEFAULT_PALETTE):
-            kb.set_palette(i, rgb)
+        k.reset_palette()
     elif args.entry is not None:
         if args.rgb is None:
             sys.exit("error: palette needs ENTRY and RRGGBB")
-        kb.set_palette(args.entry - 1, args.rgb)
-    for i, rgb in enumerate(kb.get_palette()):
-        print(f"{i + 1} {COLORS[i]:8} #{rgb.hex()}")
+        k.set_palette(args.entry, args.rgb)
+    for n, rgb in enumerate(k.kb.get_palette()):
+        print(f"{n + 1} {COLORS[n]:8} #{rgb.hex()}")
 
 
-def cmd_rate(kb: Keyboard, args):
+def cmd_rate(k: Klim, args):
     if args.hz is not None:
-        kb.set_report_rate(args.hz)
-    print(f"report_rate={kb.get_report_rate() or 'unknown '}Hz")
+        k.set_report_rate(args.hz)
+    print(f"report_rate={k.kb.get_report_rate() or 'unknown '}Hz")
 
 
-def cmd_response(kb: Keyboard, args):
+def cmd_response(k: Klim, args):
     if args.ms is not None:
-        kb.set_response_time(args.ms)
-    print(f"response_time={kb.get_response_time()}ms")
+        k.set_response_time(args.ms)
+    print(f"response_time={k.kb.get_response_time()}ms")
 
 
-def cmd_gamemode(kb: Keyboard, args):
+def cmd_gamemode(k: Klim, args):
     if args.state is not None:
-        kb.set_game_mode(args.state == "on")
-    print(f"game_mode={'on' if kb.get_game_mode() else 'off'}")
+        k.set_game_mode(args.state == "on")
+    print(f"game_mode={on_off(k.kb.get_game_mode())}")
 
 
-def cmd_winlock(kb: Keyboard, args):
+def cmd_winlock(k: Klim, args):
     if args.state is not None:
-        set_keys_enabled(kb, list(WIN_KEYS), args.state == "off", strict=False)
-    win_lock = any(n in disabled_keys(kb) for n in WIN_KEYS)
-    print(f"win_lock={'on' if win_lock else 'off'}")
+        k.set_win_lock(args.state == "on")
+    print(f"win_lock={on_off(k.info().win_lock)}")
 
 
-def cmd_disable(kb: Keyboard, args):
-    set_keys_enabled(kb, args.keys, False)
-    print(f"disabled_keys={','.join(disabled_keys(kb)) or 'none'}")
+def cmd_disable(k: Klim, args):
+    k.set_keys_enabled(args.keys, False)
+    print(fmt_disabled(k.disabled_keys()))
 
 
-def cmd_enable(kb: Keyboard, args):
+def cmd_enable(k: Klim, args):
     if args.all:
-        kb.write_key_mask(ALL_KEYS_ENABLED)
+        k.enable_all_keys()
     elif args.keys:
-        set_keys_enabled(kb, args.keys, True)
+        k.set_keys_enabled(args.keys, True)
     else:
         sys.exit("error: give keys to enable, or --all")
-    print(f"disabled_keys={','.join(disabled_keys(kb)) or 'none'}")
+    print(fmt_disabled(k.disabled_keys()))
 
 
-def cmd_keys(kb: Keyboard, args):
-    state = kb.get_state()
-    if args.slot is not None:
-        slot = args.slot - 1
-    elif state.mode >= CUSTOM_MODE_BASE:
-        slot = state.mode - CUSTOM_MODE_BASE
-    else:
-        slot = 0
-
-    if args.base is not None:
-        buf = bytearray(512)
-        for i in range(126):
-            buf[4 * i + 1:4 * i + 4] = args.base
-    else:
-        buf = kb.read_rgb(slot)
-
-    led = usage_to_led(kb.read_keymap())
+def cmd_keys(k: Klim, args):
+    slot = args.slot - 1 if args.slot is not None else k.default_slot()
+    assignments = []
     for spec in args.assignments:
         names, _, color = spec.rpartition("=")
         if not names:
             sys.exit(f"bad assignment '{spec}', expected key[,key...]=RRGGBB")
         try:
-            rgb = parse_color(color)
+            assignments.append((names.split(","), parse_color(color)))
         except argparse.ArgumentTypeError as e:
             sys.exit(f"error: {e}")
-        for name in names.split(","):
-            for usage in keys.resolve(name):
-                if usage not in led:
-                    sys.exit(f"key '{name}' (usage 0x{usage:02x}) not in keymap")
-                buf[4 * led[usage] + 1:4 * led[usage] + 4] = rgb
-
-    kb.write_rgb(slot, buf)
-    state.mode = CUSTOM_MODE_BASE + slot
-    kb.set_state(state)
+    k.paint_keys(slot, assignments, args.base)
     print(f"wrote custom slot {slot + 1}")
 
 
-def cmd_backup(kb: Keyboard, args):
-    d = Path(args.dir)
-    d.mkdir(parents=True, exist_ok=True)
-    (d / "state_0x88.bin").write_bytes(kb.query(0x08))
-    (d / "keymap_0x8d.bin").write_bytes(kb.read_keymap())
-    (d / "palette_0x94.bin").write_bytes(b"".join(kb.get_palette()))
-    (d / "keymask_0x8e.bin").write_bytes(kb.read_key_mask())
-    (d / "gamemode_0x89.bin").write_bytes(bytes([kb.get_game_mode()]))
-    if (rate := kb.get_report_rate()) and (resp := kb.get_response_time()) in RESPONSE_TIMES_MS:
-        (d / "usb.txt").write_text(f"report_rate={rate}\nresponse_time={resp}\n")
-    for slot in range(SLOTS):
-        (d / f"rgb_slot{slot}_0x92.bin").write_bytes(kb.read_rgb(slot))
-    print(f"backed up state, palette, key mask, game mode, USB settings, keymap and "
-          f"{SLOTS} RGB slots to {d}")
+def cmd_backup(k: Klim, args):
+    saved = k.backup(Path(args.dir))
+    print(f"backed up {', '.join(saved)} to {Path(args.dir)}")
 
 
-def cmd_restore(kb: Keyboard, args):
-    """Restores everything backed up except the keymap, which is never written."""
-    d = Path(args.dir)
-    restored = []
-    f = d / "palette_0x94.bin"
-    if f.exists():
-        pal = f.read_bytes()
-        for i in range(len(pal) // 3):
-            kb.set_palette(i, pal[3 * i:3 * i + 3])
-        restored.append("palette")
-    f = d / "keymask_0x8e.bin"
-    if f.exists() and len(f.read_bytes()) == KEY_MASK_LEN:
-        kb.write_key_mask(f.read_bytes())
-        restored.append("key mask")
-    f = d / "gamemode_0x89.bin"
-    if f.exists():
-        kb.set_game_mode(bool(f.read_bytes()[0]))
-        restored.append("game mode")
-    f = d / "usb.txt"
-    if f.exists():
-        usb = dict(line.split("=") for line in f.read_text().split())
-        kb.set_report_rate(int(usb["report_rate"]))
-        kb.set_response_time(int(usb["response_time"]))
-        restored.append("report rate, response time")
-    for slot in range(SLOTS):
-        f = d / f"rgb_slot{slot}_0x92.bin"
-        if f.exists():
-            kb.write_rgb(slot, f.read_bytes())
-            restored.append(f"slot {slot + 1}")
-    state = kb.get_state()
-    f = d / "state_0x88.bin"
-    if f.exists():
-        raw = f.read_bytes()
-        state.mode, state.speed, state.brightness, state.color, state.direction = raw[3:8]
-    kb.set_state(state)
-    print(f"restored {', '.join(restored + ['state'])} from {d}")
-    cmd_info(kb, args)
+def cmd_restore(k: Klim, args):
+    restored = k.restore(Path(args.dir))
+    print(f"restored {', '.join(restored)} from {Path(args.dir)}")
+    cmd_info(k, args)
 
 
 def main(argv=None):
@@ -349,9 +243,10 @@ def main(argv=None):
     args = p.parse_args(argv)
     try:
         with Keyboard() as kb:
+            k = Klim(kb)
             {"info": cmd_info, "mode": cmd_mode, "brightness": cmd_brightness, "speed": cmd_speed, "palette": cmd_palette,
              "rate": cmd_rate, "response": cmd_response, "gamemode": cmd_gamemode, "winlock": cmd_winlock, "disable": cmd_disable,
              "enable": cmd_enable, "keys": cmd_keys,
-             "backup": cmd_backup, "restore": cmd_restore}[args.cmd](kb, args)
-    except (RuntimeError, KeyError, TimeoutError) as e:
+             "backup": cmd_backup, "restore": cmd_restore}[args.cmd](k, args)
+    except (RuntimeError, KeyError, ValueError, TimeoutError) as e:
         sys.exit(f"error: {e.args[0]}")
