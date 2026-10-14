@@ -11,6 +11,8 @@ uv run klim speed 8                                  # 1 (slowest) .. 10 (fastes
 uv run klim mode wave --direction up --speed 7
 uv run klim keys --base 000020 esc=ff0000 wasd=00ff00  # per-key colors
 uv run klim winlock on                               # or: gamemode on, disable capslock, enable --all
+uv run klim rate 1000                                # USB polling: 125, 250, 500, 1000 Hz
+uv run klim response 8                               # key debounce: 2..20 ms, even
 uv run klim backup backup/full                       # state + keymap + all RGB slots
 uv run klim restore backup/full
 ```
@@ -39,6 +41,8 @@ with `COUNT` x 64-byte output reports, ~5 ms apart.
 | `08 02 mode speed bright color dir` | `88` | lighting state (reply bytes 3..7); speed is a delay, 10 (slow)..1 (fast); brightness 0 (off)..50; direction 1 →, 2 ←, 3 ↑, 4 ↓ |
 | `14 00 n R G B` | `94 00 n` | palette entry n (0..6), applies immediately |
 | `12 00 slot 08` + 512 B | `92 00 slot 08` | per-key RGB, 128 x `[0,R,G,B]` in LED order |
+| `01 n` | `81` | USB report rate, n = 0..3 → 125/250/500/1000 Hz (reply byte 2) |
+| `04 n` | `84` | response time (debounce), n = ms / 2, 2..20 ms |
 | `09 val` | `89` | game mode (reply byte 2); Print Screen lights white when on |
 | `0E 00 00 12` + 64 B | `8E 00 00 12` + 64 B | key enable mask: 6 rows (bottom first) x LE 21-bit column mask, 0 = disabled. Win Lock clears LWin |
 | `0D 00 00 08` + 512 B | `8D` | keymap, 128 x `[type,mod,usage,0]` — **not used here** |
@@ -55,7 +59,8 @@ with `COUNT` x 64-byte output reports, ~5 ms apart.
   first); LED index `col*6 + row`.
 - `91 00 n` (n=0..31) returns 3 x 64 bytes, probably macros; `11 00 n 03`
   likely writes them.
-- Unidentified: `80`; `01 val` / `81` and `04 val` / `84` (probably refresh rate and
-  response time). `81` changed `01` -> `03` after applying settings in the vendor app.
+- The firmware stores out-of-range values without complaint (e.g. `01 08`); the tool
+  validates everything it sends.
+- Unidentified: `80` (reads `02 01`, maybe a firmware version).
 - `13 FF` is sent before the app re-reads everything: most likely a factory reset.
   Never sent by this tool.

@@ -4,8 +4,9 @@ from pathlib import Path
 
 from . import keys
 from .device import (BRIGHTNESS_MAX, COLS, CUSTOM_MODE_BASE, DEFAULT_PALETTE, KEY_MASK_LEN,
-                     MODE_NAMES, MODES, MULTICOLOR, MULTICOLOR_ONLY, ROWS, SLOTS, SPEED_SLOWEST,
-                     Keyboard, key_enabled, set_key_enabled, usage_to_index, usage_to_led)
+                     MODE_NAMES, MODES, MULTICOLOR, MULTICOLOR_ONLY, REPORT_RATES_HZ,
+                     RESPONSE_TIMES_MS, ROWS, SLOTS, SPEED_SLOWEST, Keyboard, key_enabled,
+                     set_key_enabled, usage_to_index, usage_to_led)
 
 WIN_KEYS = ("lwin", "rwin")
 ALL_KEYS_ENABLED = bytes([0xFF, 0xFF, 0x1F] * ROWS)
@@ -95,6 +96,7 @@ def cmd_info(kb: Keyboard, args):
     win_lock = any(n in disabled for n in WIN_KEYS)
     print(f"game_mode={'on' if kb.get_game_mode() else 'off'} win_lock={'on' if win_lock else 'off'} "
           f"disabled_keys={','.join(disabled) or 'none'}")
+    print(f"report_rate={kb.get_report_rate() or 'unknown '}Hz response_time={kb.get_response_time()}ms")
 
 
 def disabled_keys(kb: Keyboard) -> list[str]:
@@ -154,6 +156,18 @@ def cmd_palette(kb: Keyboard, args):
         kb.set_palette(args.entry - 1, args.rgb)
     for i, rgb in enumerate(kb.get_palette()):
         print(f"{i + 1} {COLORS[i]:8} #{rgb.hex()}")
+
+
+def cmd_rate(kb: Keyboard, args):
+    if args.hz is not None:
+        kb.set_report_rate(args.hz)
+    print(f"report_rate={kb.get_report_rate() or 'unknown '}Hz")
+
+
+def cmd_response(kb: Keyboard, args):
+    if args.ms is not None:
+        kb.set_response_time(args.ms)
+    print(f"response_time={kb.get_response_time()}ms")
 
 
 def cmd_gamemode(kb: Keyboard, args):
@@ -229,13 +243,16 @@ def cmd_backup(kb: Keyboard, args):
     (d / "palette_0x94.bin").write_bytes(b"".join(kb.get_palette()))
     (d / "keymask_0x8e.bin").write_bytes(kb.read_key_mask())
     (d / "gamemode_0x89.bin").write_bytes(bytes([kb.get_game_mode()]))
+    if (rate := kb.get_report_rate()) and (resp := kb.get_response_time()) in RESPONSE_TIMES_MS:
+        (d / "usb.txt").write_text(f"report_rate={rate}\nresponse_time={resp}\n")
     for slot in range(SLOTS):
         (d / f"rgb_slot{slot}_0x92.bin").write_bytes(kb.read_rgb(slot))
-    print(f"backed up state, palette, key mask, game mode, keymap and {SLOTS} RGB slots to {d}")
+    print(f"backed up state, palette, key mask, game mode, USB settings, keymap and "
+          f"{SLOTS} RGB slots to {d}")
 
 
 def cmd_restore(kb: Keyboard, args):
-    """Restores state, palette, RGB slots, key mask and game mode; the keymap is never written."""
+    """Restores everything backed up except the keymap, which is never written."""
     d = Path(args.dir)
     restored = []
     f = d / "palette_0x94.bin"
@@ -252,6 +269,12 @@ def cmd_restore(kb: Keyboard, args):
     if f.exists():
         kb.set_game_mode(bool(f.read_bytes()[0]))
         restored.append("game mode")
+    f = d / "usb.txt"
+    if f.exists():
+        usb = dict(line.split("=") for line in f.read_text().split())
+        kb.set_report_rate(int(usb["report_rate"]))
+        kb.set_response_time(int(usb["response_time"]))
+        restored.append("report rate, response time")
     for slot in range(SLOTS):
         f = d / f"rgb_slot{slot}_0x92.bin"
         if f.exists():
@@ -292,6 +315,11 @@ def main(argv=None):
     pa.add_argument("rgb", nargs="?", type=parse_color, metavar="RRGGBB")
     pa.add_argument("--reset", action="store_true", help="restore factory colors")
 
+    ra = sub.add_parser("rate", help="show or set USB report (polling) rate")
+    ra.add_argument("hz", nargs="?", type=int, choices=REPORT_RATES_HZ)
+    rs = sub.add_parser("response", help="show or set response time (key debounce) in ms")
+    rs.add_argument("ms", nargs="?", type=int, choices=RESPONSE_TIMES_MS)
+
     on_off = dict(nargs="?", choices=["on", "off"])
     g = sub.add_parser("gamemode", help="show or set game mode (lights Print Screen white)")
     g.add_argument("state", **on_off)
@@ -321,7 +349,7 @@ def main(argv=None):
     try:
         with Keyboard() as kb:
             {"info": cmd_info, "mode": cmd_mode, "brightness": cmd_brightness, "speed": cmd_speed, "palette": cmd_palette,
-             "gamemode": cmd_gamemode, "winlock": cmd_winlock, "disable": cmd_disable,
+             "rate": cmd_rate, "response": cmd_response, "gamemode": cmd_gamemode, "winlock": cmd_winlock, "disable": cmd_disable,
              "enable": cmd_enable, "keys": cmd_keys,
              "backup": cmd_backup, "restore": cmd_restore}[args.cmd](kb, args)
     except (RuntimeError, KeyError, TimeoutError) as e:

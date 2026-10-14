@@ -15,6 +15,8 @@ import hid
 
 VID, PID, INTERFACE = 0x04D9, 0xA231, 3
 
+CMD_REPORT_RATE = 0x01
+CMD_RESPONSE_TIME = 0x04
 CMD_STATE = 0x08
 CMD_GAME_MODE = 0x09
 CMD_KEYMAP = 0x0D
@@ -40,6 +42,10 @@ MULTICOLOR = 8  # color value; 1..7 select palette entries 0..6
 DEFAULT_PALETTE = [bytes.fromhex(c) for c in
                    ("ff0000", "00ff00", "ffff00", "0000ff", "00ffff", "ff00ff", "ffffff")]
 MULTICOLOR_ONLY = (0x03, 0x08, 0x0A)  # wave, spectrum, raindrop
+
+# The firmware stores any value for these, so callers must stay within range.
+REPORT_RATES_HZ = (125, 250, 500, 1000)  # wire value = index
+RESPONSE_TIMES_MS = tuple(range(2, 21, 2))  # wire value = ms / 2 (debounce)
 
 ROWS, COLS = 6, 21
 ENTRIES = 128
@@ -135,6 +141,27 @@ class Keyboard:
 
     def set_palette(self, index: int, rgb: bytes):
         self.command(CMD_PALETTE, 0, index, *rgb)
+        time.sleep(0.02)
+
+    # --- USB report rate / response time -------------------------------
+
+    def get_report_rate(self) -> int | None:
+        """Polling rate in Hz, or None if the keyboard holds an out-of-range value."""
+        v = self.query(CMD_REPORT_RATE)[2]
+        return REPORT_RATES_HZ[v] if v < len(REPORT_RATES_HZ) else None
+
+    def set_report_rate(self, hz: int):
+        self.command(CMD_REPORT_RATE, REPORT_RATES_HZ.index(hz))
+        time.sleep(0.02)
+
+    def get_response_time(self) -> int:
+        """Debounce in ms."""
+        return self.query(CMD_RESPONSE_TIME)[2] * 2
+
+    def set_response_time(self, ms: int):
+        if ms not in RESPONSE_TIMES_MS:
+            raise ValueError(f"response time must be one of {RESPONSE_TIMES_MS}")
+        self.command(CMD_RESPONSE_TIME, ms // 2)
         time.sleep(0.02)
 
     # --- game mode / key enable mask -----------------------------------
