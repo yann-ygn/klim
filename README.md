@@ -10,6 +10,7 @@ uv run klim brightness 70%                           # 0..50 raw, or a percentag
 uv run klim speed 8                                  # 1 (slowest) .. 10 (fastest)
 uv run klim mode wave --direction up --speed 7
 uv run klim keys --base 000020 esc=ff0000 wasd=00ff00  # per-key colors
+uv run klim theme dracula --slot 2 --palette         # built-in theme into DIY2 + palette
 uv run klim winlock on                               # or: gamemode on, disable capslock, enable --all
 uv run klim rate 1000                                # USB polling: 125, 250, 500, 1000 Hz
 uv run klim response 8                               # key debounce: 2..20 ms, even
@@ -19,7 +20,10 @@ uv run klim restore backup/full
 
 Key names are positional US-QWERTY (`q` is the AZERTY `A` key). Groups:
 `wasd`, `arrows`, `fkeys`, `numbers`, `letters`, `nav`, `mods`; raw HID usages
-like `0x29` also work.
+like `0x29` and `fn` also work.
+
+Themes define colors as they look on screen and are gamma-corrected for the
+LEDs (`--gamma`, default 2.2; pastels sent as-is wash out to near white).
 
 ## TUI
 

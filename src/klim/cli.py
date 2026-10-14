@@ -4,6 +4,7 @@ from pathlib import Path
 
 from . import keys
 from .control import COLORS, DIRECTIONS, Info, Klim
+from .themes import DEFAULT_GAMMA, THEMES
 from .device import (BRIGHTNESS_MAX, MODE_NAMES, MODES, REPORT_RATES_HZ,
                      RESPONSE_TIMES_MS, SLOTS, SPEED_SLOWEST, Keyboard)
 
@@ -174,6 +175,15 @@ def cmd_keys(k: Klim, args):
     print(f"wrote custom slot {slot + 1}")
 
 
+def cmd_theme(k: Klim, args):
+    if args.slot is None and not args.palette:
+        sys.exit("error: say what to theme: --slot N (a DIY slot) and/or --palette")
+    theme = THEMES[args.name]
+    k.apply_theme(theme, None if args.slot is None else args.slot - 1, args.palette, args.gamma)
+    done = ([f"DIY{args.slot} (now showing)"] if args.slot else []) + (["palette"] if args.palette else [])
+    print(f"applied {theme.name} to {' and '.join(done)}")
+
+
 def cmd_backup(k: Klim, args):
     saved = k.backup(Path(args.dir))
     print(f"backed up {', '.join(saved)} to {Path(args.dir)}")
@@ -226,6 +236,15 @@ def main(argv=None):
     en.add_argument("keys", nargs="*", metavar="KEY")
     en.add_argument("--all", action="store_true", help="enable every key")
 
+    th = sub.add_parser("theme", help="apply a built-in theme to a DIY slot and/or the palette",
+                        epilog="Themes: " + "; ".join(f"{t.name}: {t.description}"
+                                                      for t in THEMES.values()))
+    th.add_argument("name", choices=THEMES)
+    th.add_argument("--slot", type=int, choices=range(1, SLOTS + 1), help="DIY slot to paint")
+    th.add_argument("--palette", action="store_true", help="also recolor the 7 palette entries")
+    th.add_argument("--gamma", type=float, default=DEFAULT_GAMMA,
+                    help=f"LED gamma correction (default {DEFAULT_GAMMA}; 1 = send colors as-is)")
+
     k = sub.add_parser("keys", help="set per-key colors, e.g. esc=ff0000 wasd=00ff00",
                        epilog="Key names are positional US-QWERTY (AZERTY 'A' is 'q'). "
                               f"Groups: {', '.join(keys.GROUPS)}.")
@@ -252,7 +271,7 @@ def main(argv=None):
         with Keyboard() as kb:
             k = Klim(kb)
             {"info": cmd_info, "mode": cmd_mode, "brightness": cmd_brightness, "speed": cmd_speed, "palette": cmd_palette,
-             "rate": cmd_rate, "response": cmd_response, "gamemode": cmd_gamemode, "winlock": cmd_winlock, "disable": cmd_disable,
+             "theme": cmd_theme, "rate": cmd_rate, "response": cmd_response, "gamemode": cmd_gamemode, "winlock": cmd_winlock, "disable": cmd_disable,
              "enable": cmd_enable, "keys": cmd_keys,
              "backup": cmd_backup, "restore": cmd_restore}[args.cmd](k, args)
     except (RuntimeError, KeyError, ValueError, TimeoutError) as e:

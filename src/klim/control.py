@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import keys
+from .themes import DEFAULT_GAMMA, Theme, to_led
 from .device import (BRIGHTNESS_MAX, COLS, CUSTOM_MODE_BASE, DEFAULT_PALETTE, KEY_MASK_LEN,
                      MODE_NAMES, MULTICOLOR, MULTICOLOR_ONLY, RESPONSE_TIMES_MS, ROWS, SLOTS,
                      SPEED_SLOWEST, State, key_enabled, keymap_to_led, set_key_enabled,
@@ -19,6 +20,7 @@ from .device import (BRIGHTNESS_MAX, COLS, CUSTOM_MODE_BASE, DEFAULT_PALETTE, KE
 COLORS = ["red", "green", "yellow", "blue", "cyan", "magenta", "white", "multi"]
 DIRECTIONS = ["right", "left", "up", "down"]  # which way the animation moves; 1..4 on the wire
 WIN_KEYS = ("lwin", "rwin")
+FN_TYPE = 0x02  # keymap entry type of the Fn key
 ALL_KEYS_ENABLED = bytes([0xFF, 0xFF, 0x1F] * ROWS)
 RGB_SLOT_SIZE = 512
 LEDS = ROWS * COLS
@@ -157,6 +159,9 @@ class Klim:
         index = usage_to_index(self.keymap)
         out = []
         for name in names:
+            if name.strip().lower() == "fn":  # no HID usage: find it by entry type
+                out += [k for k in range(ROWS * COLS) if self.keymap[4 * k] == FN_TYPE]
+                continue
             for usage in keys.resolve(name):
                 if usage in index:
                     out.append(index[usage])
@@ -233,6 +238,16 @@ class Klim:
     def key_color(self, buf: bytes, k: int) -> bytes:
         led = keymap_to_led(k)
         return bytes(buf[4 * led + 1:4 * led + 4])
+
+    def apply_theme(self, theme: Theme, slot: int | None = None, palette: bool = False,
+                    gamma: float = DEFAULT_GAMMA):
+        """Paint a theme into a DIY slot (0-based, then shown) and/or onto the palette."""
+        if palette:
+            for i, color in enumerate(theme.palette):
+                self.set_palette(i + 1, to_led(color, gamma))
+        if slot is not None:
+            self.paint_keys(slot, [(list(names), to_led(color, gamma)) for color, names in theme.keys],
+                            base=to_led(theme.base, gamma))
 
     def paint_keys(self, slot: int, assignments: list[tuple[list[str], bytes]],
                    base: bytes | None = None):

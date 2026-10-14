@@ -1,0 +1,2 @@
+report_rate=1000
+response_time=2
