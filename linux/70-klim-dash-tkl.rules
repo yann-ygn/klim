@@ -1,0 +1,6 @@
+# KLIM Dash TKL (Holtek 04d9:a231): let the logged-in user open its hidraw
+# nodes, so `klim` works without root.
+#   sudo cp linux/70-klim-dash-tkl.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload && sudo udevadm trigger
+# then replug the keyboard.
+KERNEL=="hidraw*", ATTRS{idVendor}=="04d9", ATTRS{idProduct}=="a231", TAG+="uaccess"

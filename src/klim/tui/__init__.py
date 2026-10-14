@@ -6,7 +6,7 @@ import sys
 def run(fake: bool = False, layout: str | None = None):
     from ..control import Klim
     from .app import KlimApp
-    from .keymap import detect_layout
+    from .kblayout import detect_layout
 
     if fake:
         from ..fake import FakeKeyboard

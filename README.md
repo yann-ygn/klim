@@ -37,6 +37,19 @@ Changes apply immediately (sliders and per-key edits are debounced). On the
 keyboard maps, click or drag to select keys, or use the arrows and Space.
 `r` re-reads everything from the keyboard, `q` quits.
 
+## Linux
+
+hidapi talks to the kernel's `hidraw` devices, which are root-only by default.
+Install the udev rule once so your user can open the keyboard:
+
+```sh
+sudo cp linux/70-klim-dash-tkl.rules /etc/udev/rules.d/
+sudo udevadm control --reload && sudo udevadm trigger   # then replug the keyboard
+```
+
+The TUI picks AZERTY or US legends from `XKB_DEFAULT_LAYOUT`, GNOME's input
+sources, `setxkbmap` or `localectl`; override with `--layout`.
+
 ## Development
 
 ```sh

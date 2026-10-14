@@ -1,8 +1,6 @@
 """Physical TKL layout and a clickable keyboard map widget."""
 
-import ctypes
 import math
-import sys
 from dataclasses import dataclass
 
 from rich.style import Style
@@ -62,18 +60,6 @@ LEGENDS_FR = {
     0x28: "Entrée", 0xE6: "AltGr", 0x39: "Verr",
 }
 LEGENDS = {"us": LEGENDS_US, "fr": LEGENDS_FR}
-
-
-def detect_layout() -> str:
-    """'fr' if Windows is using a French keyboard layout, else 'us'."""
-    if sys.platform == "win32":
-        try:
-            hkl = ctypes.windll.user32.GetKeyboardLayout(0)
-            if hkl & 0x3FF == 0x0C:  # LANG_FRENCH
-                return "fr"
-        except (AttributeError, OSError):
-            pass
-    return "us"
 
 
 @dataclass

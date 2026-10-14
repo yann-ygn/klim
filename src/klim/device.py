@@ -8,6 +8,7 @@ Writes have bit 7 clear; the matching read is CMD | 0x80 (set feature, then
 get feature). Bulk payloads are COUNT x 64-byte output/input reports.
 """
 
+import sys
 import time
 from dataclasses import dataclass
 
@@ -76,7 +77,13 @@ class Keyboard:
         if info is None:
             raise RuntimeError(f"KLIM Dash TKL ({VID:04X}:{PID:04X}) not found")
         self.dev = hid.device()
-        self.dev.open_path(info["path"])
+        try:
+            self.dev.open_path(info["path"])
+        except OSError as e:
+            path = info["path"].decode(errors="replace")
+            hint = (" Add the udev rule from linux/70-klim-dash-tkl.rules (see README) and replug."
+                    if sys.platform.startswith("linux") else "")
+            raise RuntimeError(f"found the keyboard but could not open {path} ({e}).{hint}") from e
 
     def close(self):
         self.dev.close()
