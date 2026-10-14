@@ -3,11 +3,18 @@ import sys
 from pathlib import Path
 
 from . import keys
-from .device import CUSTOM_MODE_BASE, MODES, SLOTS, Keyboard, usage_to_led
+from .device import BRIGHTNESS_MAX, CUSTOM_MODE_BASE, MODES, SLOTS, Keyboard, usage_to_led
 
 
 def parse_int(s: str) -> int:
     return int(s, 0)
+
+
+def parse_brightness(s: str) -> int:
+    v = round(float(s[:-1]) * BRIGHTNESS_MAX / 100) if s.endswith("%") else int(s, 0)
+    if not 0 <= v <= BRIGHTNESS_MAX:
+        raise argparse.ArgumentTypeError(f"brightness must be 0..{BRIGHTNESS_MAX} or a percentage")
+    return v
 
 
 def parse_color(s: str) -> bytes:
@@ -33,7 +40,7 @@ def parse_mode(s: str) -> int:
 def cmd_info(kb: Keyboard, args):
     s = kb.get_state()
     slot = f" (custom slot {s.mode - CUSTOM_MODE_BASE + 1})" if s.mode >= CUSTOM_MODE_BASE else ""
-    print(f"mode=0x{s.mode:02x}{slot} speed={s.speed} brightness={s.brightness} "
+    print(f"mode=0x{s.mode:02x}{slot} speed={s.speed} brightness={s.brightness}/{BRIGHTNESS_MAX} "
           f"color={s.color} direction={s.direction}")
 
 
@@ -43,6 +50,13 @@ def cmd_mode(kb: Keyboard, args):
     for f in ("speed", "brightness", "color", "direction"):
         if getattr(args, f) is not None:
             setattr(s, f, getattr(args, f))
+    kb.set_state(s)
+    cmd_info(kb, args)
+
+
+def cmd_brightness(kb: Keyboard, args):
+    s = kb.get_state()
+    s.brightness = args.level
     kb.set_state(s)
     cmd_info(kb, args)
 
@@ -119,9 +133,12 @@ def main(argv=None):
     m = sub.add_parser("mode", help="set lighting mode (0x01..0x0d, or custom1..custom5)")
     m.add_argument("mode", type=parse_mode)
     m.add_argument("--speed", type=parse_int)
-    m.add_argument("--brightness", type=parse_int)
+    m.add_argument("--brightness", type=parse_brightness)
     m.add_argument("--color", type=parse_int)
     m.add_argument("--direction", type=parse_int)
+
+    br = sub.add_parser("brightness", help=f"set brightness (0..{BRIGHTNESS_MAX}, or e.g. 50%%)")
+    br.add_argument("level", type=parse_brightness)
 
     k = sub.add_parser("keys", help="set per-key colors, e.g. esc=ff0000 wasd=00ff00",
                        epilog="Key names are positional US-QWERTY (AZERTY 'A' is 'q'). "
@@ -140,7 +157,7 @@ def main(argv=None):
     args = p.parse_args(argv)
     try:
         with Keyboard() as kb:
-            {"info": cmd_info, "mode": cmd_mode, "keys": cmd_keys,
+            {"info": cmd_info, "mode": cmd_mode, "brightness": cmd_brightness, "keys": cmd_keys,
              "backup": cmd_backup, "restore": cmd_restore}[args.cmd](kb, args)
     except (RuntimeError, KeyError, TimeoutError) as e:
         sys.exit(f"error: {e.args[0]}")

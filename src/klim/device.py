@@ -21,6 +21,7 @@ CMD_RGB = 0x12
 READ = 0x80
 
 SLOTS = 5
+BRIGHTNESS_MAX = 50  # 0 = LEDs off
 CUSTOM_MODE_BASE = 0x33  # modes 0x33..0x37 display RGB slots 0..4
 MODES = (0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x08, 0x0A, 0x0B, 0x0C, 0x0D,
          0x33, 0x34, 0x35, 0x36, 0x37)
@@ -38,7 +39,7 @@ def keymap_to_led(k: int) -> int:
 class State:
     mode: int
     speed: int  # raw wire value; the vendor app shows 10 - speed
-    brightness: int  # unverified guess
+    brightness: int  # 0 (off) .. BRIGHTNESS_MAX
     color: int  # 8 = multicolor, 1 = red
     direction: int
 
