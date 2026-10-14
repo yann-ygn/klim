@@ -7,32 +7,59 @@ from .device import (BRIGHTNESS_MAX, CUSTOM_MODE_BASE, MODE_NAMES, MODES, MULTIC
                      MULTICOLOR_ONLY, SLOTS, SPEED_SLOWEST, Keyboard, usage_to_led)
 
 COLORS = ["red", "green", "yellow", "blue", "cyan", "magenta", "white", "multi"]
+DIRECTIONS = ["right", "left", "up", "down"]  # which way the animation moves; 1..4 on the wire
 
 
-def parse_int(s: str) -> int:
-    return int(s, 0)
+def _int(s: str, lo: int, hi: int, msg: str) -> int:
+    try:
+        v = int(s, 0)
+    except ValueError:
+        v = None
+    if v is None or not lo <= v <= hi:
+        raise argparse.ArgumentTypeError(msg)
+    return v
+
+
+def parse_named(names: list[str], what: str):
+    """Accept a name from `names` (-> 1-based index) or its number."""
+    def parse(s: str) -> int:
+        if s.lower() in names:
+            return names.index(s.lower()) + 1
+        return _int(s, 1, len(names), f"{what} must be 1..{len(names)} or one of: {', '.join(names)}")
+    return parse
+
+
+parse_palette = parse_named(COLORS, "color")  # 1..7 = palette entry, 8 = multicolor
+parse_direction = parse_named(DIRECTIONS, "direction")
 
 
 def parse_speed(s: str) -> int:
     """User-facing speed 1 (slowest) .. 10 (fastest) -> raw delay."""
-    v = int(s, 0)
-    if not 1 <= v <= SPEED_SLOWEST:
-        raise argparse.ArgumentTypeError(f"speed must be 1 (slowest) .. {SPEED_SLOWEST} (fastest)")
+    v = _int(s, 1, SPEED_SLOWEST, f"speed must be 1 (slowest) .. {SPEED_SLOWEST} (fastest)")
     return SPEED_SLOWEST + 1 - v
 
 
 def parse_brightness(s: str) -> int:
-    v = round(float(s[:-1]) * BRIGHTNESS_MAX / 100) if s.endswith("%") else int(s, 0)
-    if not 0 <= v <= BRIGHTNESS_MAX:
-        raise argparse.ArgumentTypeError(f"brightness must be 0..{BRIGHTNESS_MAX} or a percentage")
-    return v
+    msg = f"brightness must be 0..{BRIGHTNESS_MAX} or a percentage 0%..100%"
+    if s.endswith("%"):
+        try:
+            pct = float(s[:-1])
+        except ValueError:
+            pct = -1
+        if not 0 <= pct <= 100:
+            raise argparse.ArgumentTypeError(msg)
+        s = str(round(pct * BRIGHTNESS_MAX / 100))
+    return _int(s, 0, BRIGHTNESS_MAX, msg)
 
 
 def parse_color(s: str) -> bytes:
-    s = s.lstrip("#")
-    if len(s) != 6:
+    try:
+        rgb = bytes.fromhex(s.lstrip("#"))
+    except ValueError:
+        rgb = b""
+    if len(rgb) != 3:
         raise argparse.ArgumentTypeError(f"bad color '{s}', expected RRGGBB")
-    return bytes.fromhex(s)
+    return rgb
 
 
 def parse_mode(s: str) -> int:
@@ -48,22 +75,14 @@ def parse_mode(s: str) -> int:
     return m
 
 
-def parse_palette(s: str) -> int:
-    """Color value: 1..7 = palette entry (red..white by default), 8 = multicolor."""
-    if s.lower() in COLORS:
-        return COLORS.index(s.lower()) + 1
-    v = int(s, 0)
-    if not 1 <= v <= MULTICOLOR:
-        raise argparse.ArgumentTypeError(f"color must be 1..8 or one of: {', '.join(COLORS)}")
-    return v
-
-
 def cmd_info(kb: Keyboard, args):
     s = kb.get_state()
     name = MODE_NAMES.get(s.mode, "?")
     color = COLORS[s.color - 1] if 1 <= s.color <= MULTICOLOR else "?"
-    print(f"mode={name} (0x{s.mode:02x}) speed={SPEED_SLOWEST + 1 - s.speed}/{SPEED_SLOWEST} brightness={s.brightness}/{BRIGHTNESS_MAX} "
-          f"color={color} ({s.color}) direction={s.direction}")
+    direction = DIRECTIONS[s.direction - 1] if 1 <= s.direction <= len(DIRECTIONS) else "?"
+    print(f"mode={name} (0x{s.mode:02x}) speed={SPEED_SLOWEST + 1 - s.speed}/{SPEED_SLOWEST} "
+          f"brightness={s.brightness}/{BRIGHTNESS_MAX} color={color} ({s.color}) "
+          f"direction={direction} ({s.direction})")
 
 
 def cmd_mode(kb: Keyboard, args):
@@ -113,7 +132,10 @@ def cmd_keys(kb: Keyboard, args):
         names, _, color = spec.rpartition("=")
         if not names:
             sys.exit(f"bad assignment '{spec}', expected key[,key...]=RRGGBB")
-        rgb = parse_color(color)
+        try:
+            rgb = parse_color(color)
+        except argparse.ArgumentTypeError as e:
+            sys.exit(f"error: {e}")
         for name in names.split(","):
             for usage in keys.resolve(name):
                 if usage not in led:
@@ -166,7 +188,7 @@ def main(argv=None):
     m.add_argument("--speed", type=parse_speed, help=f"1 (slowest) .. {SPEED_SLOWEST} (fastest)")
     m.add_argument("--brightness", type=parse_brightness)
     m.add_argument("--color", type=parse_palette, help=f"{', '.join(COLORS)} or 1..8")
-    m.add_argument("--direction", type=parse_int)
+    m.add_argument("--direction", type=parse_direction, help=f"{', '.join(DIRECTIONS)} or 1..4")
 
     br = sub.add_parser("brightness", help=f"set brightness (0..{BRIGHTNESS_MAX}, or e.g. 50%%)")
     br.add_argument("level", type=parse_brightness)
