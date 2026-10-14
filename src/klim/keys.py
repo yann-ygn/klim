@@ -40,6 +40,10 @@ GROUPS = {
 }
 
 
+def name_of(usage: int) -> str:
+    return next((n for n, u in NAMES.items() if u == usage), f"0x{usage:02x}")
+
+
 def resolve(name: str) -> list[int]:
     """Return HID usages for a key name, group name, or raw '0xNN' usage."""
     n = name.strip().lower()

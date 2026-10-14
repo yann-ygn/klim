@@ -3,8 +3,12 @@ import sys
 from pathlib import Path
 
 from . import keys
-from .device import (BRIGHTNESS_MAX, CUSTOM_MODE_BASE, DEFAULT_PALETTE, MODE_NAMES, MODES,
-                     MULTICOLOR, MULTICOLOR_ONLY, SLOTS, SPEED_SLOWEST, Keyboard, usage_to_led)
+from .device import (BRIGHTNESS_MAX, COLS, CUSTOM_MODE_BASE, DEFAULT_PALETTE, KEY_MASK_LEN,
+                     MODE_NAMES, MODES, MULTICOLOR, MULTICOLOR_ONLY, ROWS, SLOTS, SPEED_SLOWEST,
+                     Keyboard, key_enabled, set_key_enabled, usage_to_index, usage_to_led)
+
+WIN_KEYS = ("lwin", "rwin")
+ALL_KEYS_ENABLED = bytes([0xFF, 0xFF, 0x1F] * ROWS)
 
 # Names of the palette entries' factory colors (entries can be recolored with `klim palette`)
 COLORS = ["red", "green", "yellow", "blue", "cyan", "magenta", "white", "multi"]
@@ -87,6 +91,31 @@ def cmd_info(kb: Keyboard, args):
     print(f"mode={name} (0x{s.mode:02x}) speed={SPEED_SLOWEST + 1 - s.speed}/{SPEED_SLOWEST} "
           f"brightness={s.brightness}/{BRIGHTNESS_MAX} color={color} ({s.color}) "
           f"direction={direction} ({s.direction})")
+    disabled = disabled_keys(kb)
+    win_lock = any(n in disabled for n in WIN_KEYS)
+    print(f"game_mode={'on' if kb.get_game_mode() else 'off'} win_lock={'on' if win_lock else 'off'} "
+          f"disabled_keys={','.join(disabled) or 'none'}")
+
+
+def disabled_keys(kb: Keyboard) -> list[str]:
+    km, mask = kb.read_keymap(), kb.read_key_mask()
+    names = []
+    for k in range(ROWS * COLS):
+        if not key_enabled(mask, k) and km[4 * k + 2]:
+            names.append(keys.name_of(km[4 * k + 2]) if km[4 * k] == 0 else f"#{k}")
+    return names
+
+
+def set_keys_enabled(kb: Keyboard, names: list[str], enabled: bool, strict: bool = True):
+    index = usage_to_index(kb.read_keymap())
+    mask = kb.read_key_mask()
+    for name in names:
+        for usage in keys.resolve(name):
+            if usage in index:
+                set_key_enabled(mask, index[usage], enabled)
+            elif strict:
+                sys.exit(f"key '{name}' (usage 0x{usage:02x}) not in keymap")
+    kb.write_key_mask(mask)
 
 
 def cmd_mode(kb: Keyboard, args):
@@ -125,6 +154,34 @@ def cmd_palette(kb: Keyboard, args):
         kb.set_palette(args.entry - 1, args.rgb)
     for i, rgb in enumerate(kb.get_palette()):
         print(f"{i + 1} {COLORS[i]:8} #{rgb.hex()}")
+
+
+def cmd_gamemode(kb: Keyboard, args):
+    if args.state is not None:
+        kb.set_game_mode(args.state == "on")
+    print(f"game_mode={'on' if kb.get_game_mode() else 'off'}")
+
+
+def cmd_winlock(kb: Keyboard, args):
+    if args.state is not None:
+        set_keys_enabled(kb, list(WIN_KEYS), args.state == "off", strict=False)
+    win_lock = any(n in disabled_keys(kb) for n in WIN_KEYS)
+    print(f"win_lock={'on' if win_lock else 'off'}")
+
+
+def cmd_disable(kb: Keyboard, args):
+    set_keys_enabled(kb, args.keys, False)
+    print(f"disabled_keys={','.join(disabled_keys(kb)) or 'none'}")
+
+
+def cmd_enable(kb: Keyboard, args):
+    if args.all:
+        kb.write_key_mask(ALL_KEYS_ENABLED)
+    elif args.keys:
+        set_keys_enabled(kb, args.keys, True)
+    else:
+        sys.exit("error: give keys to enable, or --all")
+    print(f"disabled_keys={','.join(disabled_keys(kb)) or 'none'}")
 
 
 def cmd_keys(kb: Keyboard, args):
@@ -170,13 +227,15 @@ def cmd_backup(kb: Keyboard, args):
     (d / "state_0x88.bin").write_bytes(kb.query(0x08))
     (d / "keymap_0x8d.bin").write_bytes(kb.read_keymap())
     (d / "palette_0x94.bin").write_bytes(b"".join(kb.get_palette()))
+    (d / "keymask_0x8e.bin").write_bytes(kb.read_key_mask())
+    (d / "gamemode_0x89.bin").write_bytes(bytes([kb.get_game_mode()]))
     for slot in range(SLOTS):
         (d / f"rgb_slot{slot}_0x92.bin").write_bytes(kb.read_rgb(slot))
-    print(f"backed up state, palette, keymap and {SLOTS} RGB slots to {d}")
+    print(f"backed up state, palette, key mask, game mode, keymap and {SLOTS} RGB slots to {d}")
 
 
 def cmd_restore(kb: Keyboard, args):
-    """Restores lighting only (state, palette, RGB slots); the keymap is never written."""
+    """Restores state, palette, RGB slots, key mask and game mode; the keymap is never written."""
     d = Path(args.dir)
     restored = []
     f = d / "palette_0x94.bin"
@@ -185,6 +244,14 @@ def cmd_restore(kb: Keyboard, args):
         for i in range(len(pal) // 3):
             kb.set_palette(i, pal[3 * i:3 * i + 3])
         restored.append("palette")
+    f = d / "keymask_0x8e.bin"
+    if f.exists() and len(f.read_bytes()) == KEY_MASK_LEN:
+        kb.write_key_mask(f.read_bytes())
+        restored.append("key mask")
+    f = d / "gamemode_0x89.bin"
+    if f.exists():
+        kb.set_game_mode(bool(f.read_bytes()[0]))
+        restored.append("game mode")
     for slot in range(SLOTS):
         f = d / f"rgb_slot{slot}_0x92.bin"
         if f.exists():
@@ -225,6 +292,17 @@ def main(argv=None):
     pa.add_argument("rgb", nargs="?", type=parse_color, metavar="RRGGBB")
     pa.add_argument("--reset", action="store_true", help="restore factory colors")
 
+    on_off = dict(nargs="?", choices=["on", "off"])
+    g = sub.add_parser("gamemode", help="show or set game mode (lights Print Screen white)")
+    g.add_argument("state", **on_off)
+    w = sub.add_parser("winlock", help="show or set Win key lock")
+    w.add_argument("state", **on_off)
+    dis = sub.add_parser("disable", help="disable keys, e.g. capslock lwin")
+    dis.add_argument("keys", nargs="+", metavar="KEY")
+    en = sub.add_parser("enable", help="re-enable keys disabled with `klim disable`")
+    en.add_argument("keys", nargs="*", metavar="KEY")
+    en.add_argument("--all", action="store_true", help="enable every key")
+
     k = sub.add_parser("keys", help="set per-key colors, e.g. esc=ff0000 wasd=00ff00",
                        epilog="Key names are positional US-QWERTY (AZERTY 'A' is 'q'). "
                               f"Groups: {', '.join(keys.GROUPS)}.")
@@ -242,7 +320,9 @@ def main(argv=None):
     args = p.parse_args(argv)
     try:
         with Keyboard() as kb:
-            {"info": cmd_info, "mode": cmd_mode, "brightness": cmd_brightness, "speed": cmd_speed, "palette": cmd_palette, "keys": cmd_keys,
+            {"info": cmd_info, "mode": cmd_mode, "brightness": cmd_brightness, "speed": cmd_speed, "palette": cmd_palette,
+             "gamemode": cmd_gamemode, "winlock": cmd_winlock, "disable": cmd_disable,
+             "enable": cmd_enable, "keys": cmd_keys,
              "backup": cmd_backup, "restore": cmd_restore}[args.cmd](kb, args)
     except (RuntimeError, KeyError, TimeoutError) as e:
         sys.exit(f"error: {e.args[0]}")

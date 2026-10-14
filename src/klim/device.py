@@ -16,10 +16,14 @@ import hid
 VID, PID, INTERFACE = 0x04D9, 0xA231, 3
 
 CMD_STATE = 0x08
+CMD_GAME_MODE = 0x09
 CMD_KEYMAP = 0x0D
+CMD_KEY_MASK = 0x0E
 CMD_RGB = 0x12
 CMD_PALETTE = 0x14
 READ = 0x80
+# 0x13 0xFF is sent by the vendor app before re-reading everything: most likely a
+# factory reset. Never send it.
 
 SLOTS = 5
 BRIGHTNESS_MAX = 50  # 0 = LEDs off
@@ -39,6 +43,7 @@ MULTICOLOR_ONLY = (0x03, 0x08, 0x0A)  # wave, spectrum, raindrop
 
 ROWS, COLS = 6, 21
 ENTRIES = 128
+KEY_MASK_LEN = ROWS * 3  # one little-endian 21-bit column mask per row, 1 = key enabled
 
 
 def keymap_to_led(k: int) -> int:
@@ -132,6 +137,33 @@ class Keyboard:
         self.command(CMD_PALETTE, 0, index, *rgb)
         time.sleep(0.02)
 
+    # --- game mode / key enable mask -----------------------------------
+
+    def get_game_mode(self) -> bool:
+        return bool(self.query(CMD_GAME_MODE)[2])
+
+    def set_game_mode(self, on: bool):
+        self.command(CMD_GAME_MODE, int(on))
+        time.sleep(0.02)
+
+    def read_key_mask(self) -> bytearray:
+        """18 bytes, rows bottom-first like the keymap; a cleared bit disables that key."""
+        self._drain()
+        self.command(CMD_KEY_MASK | READ, 0, 0, KEY_MASK_LEN)
+        time.sleep(0.01)
+        self.dev.get_feature_report(0, 9)
+        pkt = bytes(self.dev.read(65, 1000))
+        if len(pkt) < 64:
+            raise TimeoutError("short read from keyboard")
+        return bytearray(pkt[-64:][:KEY_MASK_LEN])
+
+    def write_key_mask(self, mask: bytes):
+        assert len(mask) == KEY_MASK_LEN
+        self.command(CMD_KEY_MASK, 0, 0, KEY_MASK_LEN)
+        time.sleep(0.01)
+        self.dev.write([0] + list(mask) + [0] * (64 - KEY_MASK_LEN))
+        time.sleep(0.02)
+
     # --- per-key RGB ----------------------------------------------------
 
     def read_rgb(self, slot: int) -> bytearray:
@@ -149,11 +181,32 @@ class Keyboard:
         return self._read_bulk(CMD_KEYMAP)
 
 
-def usage_to_led(keymap: bytes) -> dict[int, int]:
-    """Map HID usage -> LED index for standard (type 0) keymap entries."""
+def usage_to_index(keymap: bytes) -> dict[int, int]:
+    """Map HID usage -> keymap index for standard (type 0) keymap entries."""
     out = {}
     for k in range(ROWS * COLS):
         typ, usage = keymap[4 * k], keymap[4 * k + 2]
         if typ == 0 and usage:
-            out.setdefault(usage, keymap_to_led(k))
+            out.setdefault(usage, k)
     return out
+
+
+def usage_to_led(keymap: bytes) -> dict[int, int]:
+    """Map HID usage -> LED index."""
+    return {u: keymap_to_led(k) for u, k in usage_to_index(keymap).items()}
+
+
+def _mask_bit(k: int) -> tuple[int, int]:
+    """Keymap index -> (byte offset, bit) in the key enable mask."""
+    col = k % COLS
+    return 3 * (k // COLS) + col // 8, 1 << (col % 8)
+
+
+def key_enabled(mask: bytes, k: int) -> bool:
+    i, bit = _mask_bit(k)
+    return bool(mask[i] & bit)
+
+
+def set_key_enabled(mask: bytearray, k: int, enabled: bool):
+    i, bit = _mask_bit(k)
+    mask[i] = mask[i] | bit if enabled else mask[i] & ~bit

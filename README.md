@@ -10,6 +10,7 @@ uv run klim brightness 70%                           # 0..50 raw, or a percentag
 uv run klim speed 8                                  # 1 (slowest) .. 10 (fastest)
 uv run klim mode wave --direction up --speed 7
 uv run klim keys --base 000020 esc=ff0000 wasd=00ff00  # per-key colors
+uv run klim winlock on                               # or: gamemode on, disable capslock, enable --all
 uv run klim backup backup/full                       # state + keymap + all RGB slots
 uv run klim restore backup/full
 ```
@@ -38,6 +39,8 @@ with `COUNT` x 64-byte output reports, ~5 ms apart.
 | `08 02 mode speed bright color dir` | `88` | lighting state (reply bytes 3..7); speed is a delay, 10 (slow)..1 (fast); brightness 0 (off)..50; direction 1 →, 2 ←, 3 ↑, 4 ↓ |
 | `14 00 n R G B` | `94 00 n` | palette entry n (0..6), applies immediately |
 | `12 00 slot 08` + 512 B | `92 00 slot 08` | per-key RGB, 128 x `[0,R,G,B]` in LED order |
+| `09 val` | `89` | game mode (reply byte 2); Print Screen lights white when on |
+| `0E 00 00 12` + 64 B | `8E 00 00 12` + 64 B | key enable mask: 6 rows (bottom first) x LE 21-bit column mask, 0 = disabled. Win Lock clears LWin |
 | `0D 00 00 08` + 512 B | `8D` | keymap, 128 x `[type,mod,usage,0]` — **not used here** |
 
 - Modes: `01` Constant, `02` Breathing, `03` Wave, `04` Reactive, `05` Chase,
@@ -52,6 +55,7 @@ with `COUNT` x 64-byte output reports, ~5 ms apart.
   first); LED index `col*6 + row`.
 - `91 00 n` (n=0..31) returns 3 x 64 bytes, probably macros; `11 00 n 03`
   likely writes them.
-- Unidentified: `80 81 84 89 8E` / `01 04 09 13`. `81` changed `01` -> `03`
-  after applying settings in the vendor app.
-- Print Screen stays white in every mode (firmware indicator?).
+- Unidentified: `80`; `01 val` / `81` and `04 val` / `84` (probably refresh rate and
+  response time). `81` changed `01` -> `03` after applying settings in the vendor app.
+- `13 FF` is sent before the app re-reads everything: most likely a factory reset.
+  Never sent by this tool.
