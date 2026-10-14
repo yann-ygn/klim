@@ -1,0 +1,23 @@
+"""Textual interface: `klim tui` (or `klim tui --fake` without a keyboard)."""
+
+import sys
+
+
+def run(fake: bool = False):
+    from ..control import Klim
+    from .app import KlimApp
+
+    if fake:
+        from ..fake import FakeKeyboard
+        kb, subtitle = FakeKeyboard(), "fake keyboard"
+    else:
+        from ..device import Keyboard
+        try:
+            kb = Keyboard()
+        except RuntimeError as e:
+            sys.exit(f"error: {e} (try `klim tui --fake`)")
+        subtitle = "connected"
+    try:
+        KlimApp(Klim(kb), subtitle).run()
+    finally:
+        kb.close()

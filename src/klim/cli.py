@@ -240,7 +240,13 @@ def main(argv=None):
     r = sub.add_parser("restore", help="restore state and RGB slots from a backup")
     r.add_argument("dir")
 
+    t = sub.add_parser("tui", help="interactive terminal interface")
+    t.add_argument("--fake", action="store_true", help="use a simulated keyboard")
+
     args = p.parse_args(argv)
+    if args.cmd == "tui":
+        from .tui import run
+        return run(fake=args.fake)
     try:
         with Keyboard() as kb:
             k = Klim(kb)
