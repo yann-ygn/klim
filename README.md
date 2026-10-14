@@ -6,6 +6,7 @@ Lighting control for the KLIM Dash TKL keyboard, replacing the vendor app.
 uv run klim info                                     # current mode/state
 uv run klim mode constant --color red                # or breathing, wave, diy1...
 uv run klim brightness 70%                           # 0..50 raw, or a percentage
+uv run klim speed 8                                  # 1 (slowest) .. 10 (fastest)
 uv run klim keys --base 000020 esc=ff0000 wasd=00ff00  # per-key colors
 uv run klim backup backup/full                       # state + keymap + all RGB slots
 uv run klim restore backup/full
@@ -32,7 +33,7 @@ with `COUNT` x 64-byte output reports, ~5 ms apart.
 
 | Write | Read | Payload |
 |---|---|---|
-| `08 02 mode speed bright color dir` | `88` | lighting state (reply bytes 3..7); brightness 0 (off)..50 |
+| `08 02 mode speed bright color dir` | `88` | lighting state (reply bytes 3..7); speed is a delay, 10 (slow)..1 (fast); brightness 0 (off)..50 |
 | `12 00 slot 08` + 512 B | `92 00 slot 08` | per-key RGB, 128 x `[0,R,G,B]` in LED order |
 | `0D 00 00 08` + 512 B | `8D` | keymap, 128 x `[type,mod,usage,0]` — **not used here** |
 

@@ -4,13 +4,21 @@ from pathlib import Path
 
 from . import keys
 from .device import (BRIGHTNESS_MAX, CUSTOM_MODE_BASE, MODE_NAMES, MODES, MULTICOLOR,
-                     MULTICOLOR_ONLY, SLOTS, Keyboard, usage_to_led)
+                     MULTICOLOR_ONLY, SLOTS, SPEED_SLOWEST, Keyboard, usage_to_led)
 
 COLORS = ["red", "green", "yellow", "blue", "cyan", "magenta", "white", "multi"]
 
 
 def parse_int(s: str) -> int:
     return int(s, 0)
+
+
+def parse_speed(s: str) -> int:
+    """User-facing speed 1 (slowest) .. 10 (fastest) -> raw delay."""
+    v = int(s, 0)
+    if not 1 <= v <= SPEED_SLOWEST:
+        raise argparse.ArgumentTypeError(f"speed must be 1 (slowest) .. {SPEED_SLOWEST} (fastest)")
+    return SPEED_SLOWEST + 1 - v
 
 
 def parse_brightness(s: str) -> int:
@@ -54,7 +62,7 @@ def cmd_info(kb: Keyboard, args):
     s = kb.get_state()
     name = MODE_NAMES.get(s.mode, "?")
     color = COLORS[s.color - 1] if 1 <= s.color <= MULTICOLOR else "?"
-    print(f"mode={name} (0x{s.mode:02x}) speed={s.speed} brightness={s.brightness}/{BRIGHTNESS_MAX} "
+    print(f"mode={name} (0x{s.mode:02x}) speed={SPEED_SLOWEST + 1 - s.speed}/{SPEED_SLOWEST} brightness={s.brightness}/{BRIGHTNESS_MAX} "
           f"color={color} ({s.color}) direction={s.direction}")
 
 
@@ -73,6 +81,13 @@ def cmd_mode(kb: Keyboard, args):
 def cmd_brightness(kb: Keyboard, args):
     s = kb.get_state()
     s.brightness = args.level
+    kb.set_state(s)
+    cmd_info(kb, args)
+
+
+def cmd_speed(kb: Keyboard, args):
+    s = kb.get_state()
+    s.speed = args.level
     kb.set_state(s)
     cmd_info(kb, args)
 
@@ -148,13 +163,16 @@ def main(argv=None):
 
     m = sub.add_parser("mode", help=f"set lighting mode: {', '.join(MODES)}")
     m.add_argument("mode", type=parse_mode)
-    m.add_argument("--speed", type=parse_int)
+    m.add_argument("--speed", type=parse_speed, help=f"1 (slowest) .. {SPEED_SLOWEST} (fastest)")
     m.add_argument("--brightness", type=parse_brightness)
     m.add_argument("--color", type=parse_palette, help=f"{', '.join(COLORS)} or 1..8")
     m.add_argument("--direction", type=parse_int)
 
     br = sub.add_parser("brightness", help=f"set brightness (0..{BRIGHTNESS_MAX}, or e.g. 50%%)")
     br.add_argument("level", type=parse_brightness)
+
+    sp = sub.add_parser("speed", help=f"set animation speed (1 slowest .. {SPEED_SLOWEST} fastest)")
+    sp.add_argument("level", type=parse_speed)
 
     k = sub.add_parser("keys", help="set per-key colors, e.g. esc=ff0000 wasd=00ff00",
                        epilog="Key names are positional US-QWERTY (AZERTY 'A' is 'q'). "
@@ -173,7 +191,7 @@ def main(argv=None):
     args = p.parse_args(argv)
     try:
         with Keyboard() as kb:
-            {"info": cmd_info, "mode": cmd_mode, "brightness": cmd_brightness, "keys": cmd_keys,
+            {"info": cmd_info, "mode": cmd_mode, "brightness": cmd_brightness, "speed": cmd_speed, "keys": cmd_keys,
              "backup": cmd_backup, "restore": cmd_restore}[args.cmd](kb, args)
     except (RuntimeError, KeyError, TimeoutError) as e:
         sys.exit(f"error: {e.args[0]}")

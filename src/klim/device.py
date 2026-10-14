@@ -22,6 +22,7 @@ READ = 0x80
 
 SLOTS = 5
 BRIGHTNESS_MAX = 50  # 0 = LEDs off
+SPEED_SLOWEST, SPEED_FASTEST = 10, 1  # raw values: speed is an animation delay
 CUSTOM_MODE_BASE = 0x33  # modes 0x33..0x37 display RGB slots 0..4
 MODES = {
     "constant": 0x01, "breathing": 0x02, "wave": 0x03, "reactive": 0x04,
@@ -45,7 +46,7 @@ def keymap_to_led(k: int) -> int:
 @dataclass
 class State:
     mode: int
-    speed: int  # raw wire value; the vendor app shows 10 - speed
+    speed: int  # raw delay, SPEED_SLOWEST (10) .. SPEED_FASTEST (1)
     brightness: int  # 0 (off) .. BRIGHTNESS_MAX
     color: int  # 8 = multicolor, 1 = red
     direction: int
